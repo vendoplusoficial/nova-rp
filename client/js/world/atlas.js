@@ -80,7 +80,7 @@ const rndN = () => { seedN = (seedN * 16807) % 2147483647; return seedN / 214748
 const WARM = ['#ffd98a', '#ffc870', '#ffe6b0', '#fff1cf', '#ffcf9a', '#bcd7ff'];
 function nightPane(x, y, w, h) {
   if (!gn || rndN() >= lit) return;
-  gn.fillStyle = lit >= 1 ? (rndN() < 0.5 ? '#e8c890' : '#f0d8a8') : WARM[Math.floor(rndN() * WARM.length)];
+  gn.fillStyle = lit >= 1 ? (rndN() < 0.5 ? '#e8c890' : '#f0d8a8') : lit < 0.4 ? (rndN() < 0.6 ? '#b8a77e' : '#a9b3bd') : WARM[Math.floor(rndN() * WARM.length)];
   gn.fillRect(x, y, w, h);
 }
 
@@ -141,7 +141,7 @@ function paint(g) {
     for (let c = 0; c <= 2; c++) g.fillRect(x + c * cw - 1.5, y, 3, h);
     for (let c = 0; c < 2; c++) g.fillRect(x + c * cw + cw / 2 - 1, y, 2, h);
   };
-  lit = 0.35;
+  lit = 0.3;
   curtain('glassBlue', '#a9cbe6', '#3f6f9a', '#1c3550', '#d5dde3', '#2c4258');
   curtain('glassTeal', '#b5dcdc', '#3b7d80', '#173b40', '#d9e2e2', '#28484b');
   curtain('glassBronze', '#d9c7a8', '#7a6243', '#3a2c1d', '#e2d8c8', '#4a3a28');

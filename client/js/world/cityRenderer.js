@@ -68,8 +68,9 @@ export class CityRenderer {
   // 0 = pleno día, 1 = noche cerrada (lo controla el ciclo de horario)
   setNight(n) {
     this.night = n;
-    this.matAtlas.emissiveIntensity = n * 0.95;
-    this.matWin.emissiveIntensity = n * 0.8;
+    // las luces se encienden de verdad ya entrada la tarde-noche (curva, no lineal)
+    this.matAtlas.emissiveIntensity = n * n * 0.95;
+    this.matWin.emissiveIntensity = n * n * 0.8;
     this.matPlain.userData.uNight.value = n;
     this.matGlow.opacity = n;
     this.matGlow.visible = n > 0.02;
