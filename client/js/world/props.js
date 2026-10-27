@@ -1,7 +1,7 @@
 // Biblioteca de objetos low-poly (se calculan una vez y se "estampan" en la geometría de cada zona).
 // Todos miran hacia +Z y su base está en y=0. Varios tienen VARIANTES (v = 0..2) para que no se repitan.
 
-import { makeProto, shade, mixHex } from './geometry.js';
+import { makeProto, shade, mixHex, glow } from './geometry.js';
 
 const cache = new Map();
 
@@ -143,7 +143,7 @@ const B = {
     b.tube([[0, 0.5, 0], [0, 7.4, 0]], [0.1, 0.07], 6, 0x6b7279);
     b.tube([[0, 7.2, 0], [0, 7.75, 0.35], [0, 7.85, 1.0], [0, 7.8, 1.6]], [0.06, 0.055, 0.05, 0.05], 5, 0x6b7279);
     b.boxR(0, 7.72, 1.75, 0.34, 0.12, 0.7, 0, 0x4f555b);
-    b.boxR(0, 7.65, 1.75, 0.26, 0.02, 0.56, 0, 0xfff6d8, { bottom: true });
+    b.boxR(0, 7.65, 1.75, 0.26, 0.02, 0.56, 0, glow(0xfff6d8), { bottom: true });
   },
   lampDouble: (b) => {
     b.cylinder(0, 0, 0, 0.2, 0.2, 0.6, 8, 0x4b5157);
@@ -151,14 +151,14 @@ const B = {
     for (const s of [-1, 1]) {
       b.tube([[0, 8.3, 0], [0, 8.85, s * 0.4], [0, 8.95, s * 1.2], [0, 8.9, s * 1.8]], [0.06, 0.06, 0.055, 0.05], 5, 0x5d646b);
       b.boxR(0, 8.82, s * 1.95, 0.36, 0.13, 0.75, 0, 0x4a5056);
-      b.boxR(0, 8.75, s * 1.95, 0.28, 0.02, 0.6, 0, 0xfff6d8, { bottom: true });
+      b.boxR(0, 8.75, s * 1.95, 0.28, 0.02, 0.6, 0, glow(0xfff6d8), { bottom: true });
     }
   },
   lampColonial: (b) => {
     b.cylinder(0, 0, 0, 0.24, 0.18, 0.7, 8, 0x1e1e1e);
     b.tube([[0, 0.7, 0], [0, 3.2, 0]], [0.07, 0.06], 6, 0x1e1e1e);
     b.cylinder(0, 3.2, 0, 0.12, 0.22, 0.12, 6, 0x1e1e1e);
-    b.cylinder(0, 3.32, 0, 0.2, 0.28, 0.55, 6, 0xfff1b8, { top: 0x1e1e1e });
+    b.cylinder(0, 3.32, 0, 0.2, 0.28, 0.55, 6, glow(0xfff1b8, 2.2), { top: 0x1e1e1e });
     b.cylinder(0, 3.87, 0, 0.36, 0.06, 0.32, 6, 0x1e1e1e);
   },
   lampWood: (b) => {
@@ -166,10 +166,10 @@ const B = {
     b.boxR(0, 6.6, 0, 1.6, 0.1, 0.1, 0, 0x5d4430);
     b.tube([[0, 6.4, 0], [0, 6.75, 0.6], [0, 6.7, 1.2]], [0.04, 0.04, 0.04], 4, 0x555555);
     b.boxR(0, 6.62, 1.3, 0.3, 0.14, 0.42, 0, 0x505050);
-    b.boxR(0, 6.54, 1.3, 0.22, 0.02, 0.32, 0, 0xfff2c4, { bottom: true });
+    b.boxR(0, 6.54, 1.3, 0.22, 0.02, 0.32, 0, glow(0xfff2c4), { bottom: true });
   },
-  lampgarden: (b) => { b.boxR(0, 0.35, 0, 0.16, 0.7, 0.16, 0, 0x37474f); b.boxR(0, 0.75, 0, 0.22, 0.12, 0.22, 0, 0xfff59d); },
-  floodlight: (b) => { b.tube([[0, 0, 0], [0, 12, 0]], [0.18, 0.12], 6, 0x9e9e9e); b.boxR(0, 12, 0.3, 2.2, 1.0, 0.4, 0, 0xeceff1); },
+  lampgarden: (b) => { b.boxR(0, 0.35, 0, 0.16, 0.7, 0.16, 0, 0x37474f); b.boxR(0, 0.75, 0, 0.22, 0.12, 0.22, 0, glow(0xfff59d, 2)); },
+  floodlight: (b) => { b.tube([[0, 0, 0], [0, 12, 0]], [0.18, 0.12], 6, 0x9e9e9e); b.boxR(0, 12, 0.3, 2.2, 1.0, 0.4, 0, 0xeceff1); b.boxR(0, 12, 0.51, 2.0, 0.8, 0.02, 0, glow(0xffffff, 2.2)); },
   // Semáforo: poste en la esquina y brazo sobre la calle (+Z); las luces miran a +X (al tráfico)
   trafficLight: (b) => {
     b.cylinder(0, 0, 0, 0.18, 0.18, 0.4, 8, 0x3d4146);
@@ -178,13 +178,13 @@ const B = {
     for (const z of [2.6, 5.0]) {
       b.boxR(0, 5.4, z, 0.36, 1.05, 0.36, 0, 0x202326);
       b.boxR(0.19, 5.4, z, 0.02, 1.2, 0.5, 0, 0x2b2f33);
-      b.boxR(0.2, 5.75, z, 0.04, 0.22, 0.22, 0, 0xff3b30);
+      b.boxR(0.2, 5.75, z, 0.04, 0.22, 0.22, 0, glow(0xff3b30, 2));
       b.boxR(0.2, 5.42, z, 0.04, 0.22, 0.22, 0, 0x5a4a14);
       b.boxR(0.2, 5.09, z, 0.04, 0.22, 0.22, 0, 0x1d4a26);
     }
     // semáforo peatonal en el poste
     b.boxR(0.15, 2.8, 0, 0.26, 0.6, 0.3, 0, 0x202326);
-    b.boxR(0.29, 2.95, 0, 0.02, 0.18, 0.18, 0, 0xff6d3a);
+    b.boxR(0.29, 2.95, 0, 0.02, 0.18, 0.18, 0, glow(0xff6d3a, 2));
     b.boxR(0.29, 2.65, 0, 0.02, 0.18, 0.18, 0, 0x1b3d22);
     // señal con nombre (placa verde)
     b.boxR(0.0, 6.55, 3.6, 0.05, 0.4, 1.6, 0, 0x1b6e3a);

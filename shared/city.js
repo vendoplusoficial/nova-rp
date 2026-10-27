@@ -312,7 +312,7 @@ export function generateCity(seed = CITY_SEED) {
     if (!fn) continue;
     const s = { id: def.id, kind: def.kind, name: def.name, brand: def.brand, interior: def.interior, cx: q.cx, cz: q.cz, hx: q.hx, hz: q.hz, rot: q.rot, lakeSide: q.lakeSide, drop: q.drop };
     const res = fn(s, new Rng(hashInts(seed, Math.round(q.cx), Math.round(q.cz))));
-    const site = { ...s, parts: res.parts, y0: q.y0 ?? hm.height(q.cx, q.cz) };
+    const site = { ...s, parts: dropOnRoad(net, s, res.parts), y0: q.y0 ?? hm.height(q.cx, q.cz) };
     city.sites.push(site);
     registerSite(city, site, res.points || {});
     if (res.pond) {
@@ -363,6 +363,21 @@ export function generateCity(seed = CITY_SEED) {
   delete city._ph; delete city._lh;
   city.genMs = Date.now() - t0;
   return city;
+}
+
+// Quita de un sitio los objetos sueltos (árboles, postes, canastas, vallas, vehículos) que caen
+// sobre el asfalto de una calle: el sitio se acomoda a la calle, nunca al revés.
+function dropOnRoad(net, o, parts) {
+  const onRoad = (lx, lz, m) => {
+    const [x, z] = toWorld(o, lx, lz);
+    for (const sg of net.near(x - 25, z - 25, x + 25, z + 25)) if (segDist(sg.ax, sg.az, sg.bx, sg.bz, x, z) < sg.road.w / 2 + m) return true;
+    return false;
+  };
+  return parts.filter((p) => {
+    if (p.k === 'prop' || p.k === 'cyl' || p.k === 'cone') return !onRoad(p.x, p.z, p.k === 'prop' ? 0.6 : 0.3);
+    if (p.k === 'fence') { for (let t = 0; t <= 1; t += 0.125) if (onRoad(p.x + (p.x2 - p.x) * t, p.z + (p.z2 - p.z) * t, 0.2)) return false; }
+    return true;
+  });
 }
 
 // Cortina de la presa: a lo largo de la línea DAM; el lago queda de un lado y el río del otro
@@ -993,9 +1008,12 @@ function streetFurniture(city, net, seed) {
               if (!treeFree(s / seg.L, side)) continue;
               const h = hashInts(seed, Math.round((seg.ax + s) * 3), Math.round(seg.az * 3), side);
               if (h % 10 < 3) continue;
-              const [x, z] = at(s, half + 0.75, side);
+              const [x, z] = at(s, half + Math.min(1.1, road.sw * 0.4), side);
               if (!playable(x, z, 0) || !spotOK(city, x, z, road.sw)) continue;
-              city.props.push({ type: kinds[h % kinds.length], x, z, r: (h % 628) / 100, sc: 0.85 + (h % 30) / 100, col: 1, street: 1 });
+              // el tronco se inclina hacia la banqueta (lado contrario a la calle), nunca sobre los carriles
+              const ox = -seg.uz * side, oz = seg.ux * side;
+              const lean = Math.atan2(-oz, ox) + ((h % 60) - 30) / 100;
+              city.props.push({ type: kinds[h % kinds.length], x, z, r: lean, sc: 0.85 + (h % 30) / 100, col: 1, street: 1 });
             }
           }
         }

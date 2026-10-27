@@ -26,6 +26,10 @@ export function renderParts(P, W, obj, parts, detail, signs, far = false, T = nu
     switch (p.k) {
       case 'box': {
         const ground = (p.y || 0) === 0;
+        // zócalo: base de piedra un poco saliente y más oscura al pie de los edificios
+        if (!far && ground && !p.det && !p.r && p.h >= 2.4 && p.w >= 2.5 && p.d >= 2.5) {
+          P.box(p.x - p.w / 2 - 0.05, -0.4, p.z - p.d / 2 - 0.05, p.x + p.w / 2 + 0.05, 0.42, p.z + p.d / 2 + 0.05, shade(p.c, 0.6), { top: shade(p.c, 0.72) });
+        }
         const bottom = ground ? -1.5 : p.y;
         const top = (p.y || 0) + p.h;
         if (p.r) { P.boxR(p.x, (bottom + top) / 2, p.z, p.w, top - bottom, p.d, p.r, p.c, { top: shade(p.c, 0.9) }); break; }
@@ -39,6 +43,8 @@ export function renderParts(P, W, obj, parts, detail, signs, far = false, T = nu
           P.rectXZ(x0, z0, x1, z1, top, roof);
         } else if (!far && p.h >= 1.2 && !p.det) {
           P.boxAO(x0, bottom, z0, x1, top, z1, p.c, { ground: p.y || 0, top: shade(p.c, 0.88), band: Math.min(2.2, p.h * 0.6), ao: ground ? 0.7 : 0.84 });
+          // remate claro en lo alto del muro (bajo el alero del techo o como cornisa de azotea)
+          if (p.h >= 2.4 && p.w >= 2.5 && p.d >= 2.5) P.box(x0 - 0.09, top - 0.2, z0 - 0.09, x1 + 0.09, top, z1 + 0.09, shade(p.c, 1.12), { top: shade(p.c, 0.95), bottom: true });
         } else {
           P.box(x0, bottom, z0, x1, top, z1, p.c, { top: shade(p.c, 0.88) });
         }

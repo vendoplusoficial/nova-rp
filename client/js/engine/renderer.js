@@ -46,13 +46,14 @@ export class Renderer {
     this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.3, this.viewDist + 80);
     this.scene.add(this.camera);
 
-    // cielo azul que rellena las sombras + sol cálido de media tarde
+    // cielo que rellena las sombras + sol (o luna); el ciclo de horario (daycycle.js) los ajusta
     const hemi = new THREE.HemisphereLight(0xdcebff, 0x8a7d66, 1.45);
     this.scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xfff0d6, 2.15);
     sun.position.set(0.55, 1, 0.35);
     this.scene.add(sun);
     this.scene.add(sun.target);
+    this.hemi = hemi; this.sun = sun;
 
     this.addSkyDome();
 
@@ -77,6 +78,7 @@ export class Renderer {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
+    this.skyGeo = geo;
     this.sky = new THREE.Mesh(geo, mat);
     this.sky.renderOrder = -2;
     this.sky.frustumCulled = false;
@@ -104,6 +106,68 @@ export class Renderer {
     this.mountains.renderOrder = -1;
     this.mountains.frustumCulled = false;
     this.sky.add(this.mountains);
+    this.addSunMoonStars();
+  }
+
+  // Disco del sol (con halo), luna y estrellas: hijos de la cúpula, siguen a la cámara
+  addSunMoonStars() {
+    const disc = (r, color, opacity, additive) => {
+      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 20), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, fog: false, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending }));
+      m.renderOrder = -1; m.frustumCulled = false;
+      this.sky.add(m);
+      return m;
+    };
+    this.sunHalo = disc(0.05, 0xffd9a0, 0.2, true);
+    this.sunDisc = disc(0.02, 0xfff6e0, 1, false);
+    this.moonDisc = disc(0.02, 0xe8eeff, 1, false);
+    const n = 260, pos = new Float32Array(n * 3);
+    let r = 9;
+    const rnd = () => { r = (r * 16807) % 2147483647; return r / 2147483647; };
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * Math.PI * 2, y = 0.12 + rnd() * 0.88, k = Math.sqrt(1 - y * y);
+      pos[i * 3] = Math.cos(a) * k * 0.95; pos[i * 3 + 1] = y * 0.95; pos[i * 3 + 2] = Math.sin(a) * k * 0.95;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+    this.stars.renderOrder = -1; this.stars.frustumCulled = false;
+    this.sky.add(this.stars);
+  }
+
+  // Aplica el estado del cielo que calcula el ciclo de horario
+  setAtmosphere(a) {
+    const col = this.skyGeo.attributes.color, pos = this.skyGeo.attributes.position;
+    const top = this._c1 || (this._c1 = new THREE.Color()), mid = this._c2 || (this._c2 = new THREE.Color()), hor = this._c3 || (this._c3 = new THREE.Color()), c = this._c4 || (this._c4 = new THREE.Color());
+    top.setHex(a.top); mid.setHex(a.mid); hor.setHex(a.hor);
+    const sx = a.sunDir[0], sz = a.sunDir[2];
+    const sl = Math.hypot(sx, sz) || 1;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y < 0.12) c.copy(hor).lerp(mid, Math.max(0, y) / 0.12);
+      else c.copy(mid).lerp(top, Math.min(1, (y - 0.12) / 0.6));
+      // resplandor del lado del sol al amanecer/atardecer
+      if (a.glow > 0 && y < 0.5) {
+        const d = (pos.getX(i) * sx + pos.getZ(i) * sz) / sl / Math.max(1e-3, Math.hypot(pos.getX(i), pos.getZ(i)));
+        const k = Math.max(0, d) ** 2 * (1 - y / 0.5) * a.glow;
+        c.r += (a.glowC[0] - c.r) * k; c.g += (a.glowC[1] - c.g) * k; c.b += (a.glowC[2] - c.b) * k;
+      }
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    col.needsUpdate = true;
+    this.scene.fog.color.setHex(a.fog);
+    this.scene.background.setHex(a.fog);
+    this.hemi.color.setHex(a.hemiSky); this.hemi.groundColor.setHex(a.hemiGround); this.hemi.intensity = a.hemiI;
+    this.sun.color.setHex(a.sunC); this.sun.intensity = a.sunI;
+    this.sun.position.set(a.lightDir[0], a.lightDir[1], a.lightDir[2]);
+    this.mountains.material.color.setHex(a.mount);
+    const place = (m, d, show) => { m.visible = show; if (show) { m.position.set(d[0] * 0.9, d[1] * 0.9, d[2] * 0.9); m.lookAt(this.sky.position); } };
+    place(this.sunDisc, a.sunDir, a.sunDir[1] > -0.06);
+    place(this.sunHalo, a.sunDir, a.sunDir[1] > -0.06);
+    this.sunDisc.material.color.setHex(a.sunDiscC);
+    this.sunHalo.material.color.setHex(a.sunDiscC);
+    place(this.moonDisc, [-a.sunDir[0], -a.sunDir[1], -a.sunDir[2]], a.sunDir[1] < 0.08);
+    this.stars.material.opacity = a.stars;
+    this.stars.visible = a.stars > 0.02;
   }
 
   onResize() {

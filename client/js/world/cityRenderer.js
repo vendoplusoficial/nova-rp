@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
-import { getAtlas } from './atlas.js';
+import { getAtlas, getAtlasNight } from './atlas.js';
 import { TERRAIN_MIN, TERRAIN_MAX_X, TERRAIN_MAX_Z, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
 import { districtAt } from '/shared/districts.js';
@@ -25,6 +25,12 @@ const GROUND = {
   costa: 0x8aa85f, playa: 0x93ad66, puerto: 0x8e8c86, industrial: 0x939089, aeropuerto: 0x86a05a, exclusiva: 0x67a84b,
   presa: 0x5f9a45, montana: 0x6b8f48, isla: 0x78a452, prision: 0x9a978c, campo: 0x6e9b4a,
 };
+const UP = [0, 1, 0], BLACK = [0, 0, 0];
+// faroles: dónde está la cabeza (m hacia +Z local), radio y color del charco de luz
+const LAMP_HEADS = {
+  lamp: { at: [1.75], r: 6.5, c: 0xc8975a }, lampDouble: { at: [1.95, -1.95], r: 7, c: 0xc8975a }, lampColonial: { at: [0], r: 5, c: 0xd0965a },
+  lampWood: { at: [1.3], r: 6, c: 0xc08a50 }, floodlight: { at: [3], r: 11, c: 0x9a9a9a },
+};
 const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const DETAIL_PROPS = new Set(['bench', 'bin', 'umbrellaBeach', 'towel', 'volleyball', 'buoy', 'mailbox', 'grill', 'lounger', 'crates', 'planter']);
@@ -35,11 +41,16 @@ export class CityRenderer {
     this.city = city;
     this.hm = city.hm;
     this.loadRadius = 260;
-    this.winTex = makeWindowTexture();
+    const [winDay, winNight] = makeWindowTexture();
+    this.winTex = winDay;
     this.winTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    this.matWin = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.winTex });
-    this.matPlain = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.matAtlas = new THREE.MeshLambertMaterial({ vertexColors: true, map: getAtlas(renderer) });
+    // de noche las ventanas encendidas brillan (mapa emisivo) y los focos de vértice "luz" también
+    this.matWin = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.winTex, emissive: 0xffffff, emissiveMap: winNight, emissiveIntensity: 0 });
+    this.matPlain = glowMaterial(new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.matAtlas = new THREE.MeshLambertMaterial({ vertexColors: true, map: getAtlas(renderer), emissive: 0xffffff, emissiveMap: getAtlasNight(renderer), emissiveIntensity: 0 });
+    // charcos de luz bajo los faroles (aditivos; solo de noche)
+    this.matGlow = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    this.night = 0;
     this.matFoliage = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); // hojas de palmera
     this.root = new THREE.Group();
     scene.add(this.root);
@@ -53,6 +64,17 @@ export class CityRenderer {
   }
 
   setViewDistance(d) { this.loadRadius = d + 40; }
+
+  // 0 = pleno día, 1 = noche cerrada (lo controla el ciclo de horario)
+  setNight(n) {
+    this.night = n;
+    // las luces se encienden de verdad ya entrada la tarde-noche (curva, no lineal)
+    this.matAtlas.emissiveIntensity = n * n * 0.95;
+    this.matWin.emissiveIntensity = n * n * 0.8;
+    this.matPlain.userData.uNight.value = n;
+    this.matGlow.opacity = n;
+    this.matGlow.visible = n > 0.02;
+  }
 
   tileKey(x, z) {
     const i = Math.floor((x - TERRAIN_MIN) / TILE), j = Math.floor((z - TERRAIN_MIN) / TILE);
@@ -79,19 +101,17 @@ export class CityRenderer {
     for (const p of this.city.props) add(p.x, p.z, 'props', p);
     for (const cp of this.city.caps || []) add(cp.cx, cp.cz, 'caps', cp);
     const net = this.city.net;
-    // en los quiebres de una calle los tramos se alargan un poco para no dejar cuñas abiertas
+    // en los quiebres de una calle las orillas se cortan a inglete: el lado interior se acorta y el
+    // exterior se alarga lo justo para que asfalto y banqueta sigan la curva sin dientes ni huecos
     const segs = net.segs;
     for (let k = 0; k < segs.length; k++) {
-      const seg = segs[k], road = seg.road, half = road.w / 2 + road.sw;
-      const ext = (o) => {
-        if (!o || o.road !== road) return 0;
-        const cos = Math.max(-1, Math.min(1, o.ux * seg.ux + o.uz * seg.uz));
-        return Math.min(3, half * Math.tan(Math.acos(cos) / 2)) + 0.05;
-      };
+      const seg = segs[k], road = seg.road;
       let prev = segs[k - 1], next = segs[k + 1];
       if (!prev || prev.road !== road || Math.hypot(prev.bx - seg.ax, prev.bz - seg.az) > 0.01) prev = road.closed ? segs.find((q) => q.road === road && Math.hypot(q.bx - seg.ax, q.bz - seg.az) < 0.01) : null;
       if (!next || next.road !== road || Math.hypot(next.ax - seg.bx, next.az - seg.bz) > 0.01) next = road.closed ? segs.find((q) => q.road === road && Math.hypot(q.ax - seg.bx, q.az - seg.bz) < 0.01) : null;
-      seg.extA = ext(prev); seg.extB = ext(next);
+      const turn = (a, b) => { const phi = Math.atan2(a.ux * b.uz - a.uz * b.ux, a.ux * b.ux + a.uz * b.uz); return Math.tan(Math.max(-1.1, Math.min(1.1, phi)) / 2); };
+      seg.tA = prev ? turn(prev, seg) : 0;    // giro al llegar al tramo
+      seg.tB = next ? turn(seg, next) : 0;    // giro al salir del tramo
     }
     for (const seg of net.segs) {
       const road = seg.road;
@@ -194,6 +214,9 @@ export class CityRenderer {
       for (const cp of t.caps) { renderParts(P, null, cp, cp.parts, true, signs, false, T); collectSigns(cp, signs); }
       for (const p of t.props) if (p.det || DETAIL_PROPS.has(p.type)) this.prop(P, p);
       if (signs.length) group.add(signMesh(signs));
+      const G = new GeoBuilder(false);
+      for (const p of t.props) this.lightPool(G, p);
+      if (G.vertexCount) { const m = staticMesh(G.build(), this.matGlow); m.renderOrder = 1; group.add(m); }
     }
     if (P.vertexCount) group.add(staticMesh(P.build(), this.matPlain));
     if (T && T.vertexCount) group.add(staticMesh(T.build(), this.matAtlas));
@@ -202,6 +225,25 @@ export class CityRenderer {
     if (t[kind]) this.unload(t, kind); // reemplazo sin huecos al cambiar de calidad
     t[kind] = group;
     if (kind === 'base') t.lod = lod;
+  }
+
+  // Charco de luz cálida en el piso bajo la cabeza de cada farol (y de los reflectores)
+  lightPool(G, p) {
+    const L = LAMP_HEADS[p.type];
+    if (!L) return;
+    const r = p.r || 0, c = Math.cos(r), s = Math.sin(r);
+    for (const lz of L.at) {
+      const x = p.x + lz * s, z = p.z + lz * c;
+      const y = this.hm.height(x, z) + 0.2;
+      const n = 12, R = L.r;
+      const mid = [x, y, z], col = lin(L.c);
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+        const e0 = [x + Math.sin(a0) * R, this.hm.height(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
+        const e1 = [x + Math.sin(a1) * R, this.hm.height(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
+        G.triV(mid, e0, e1, UP, UP, UP, col, BLACK, BLACK);
+      }
+    }
   }
 
   prop(P, p, far = false) {
@@ -300,13 +342,16 @@ export class CityRenderer {
     this.lift = lift;
     // franjas a lo ancho (cerca: cada ~2.5 m) para que la calle siga al terreno sin que asome el pasto
     const cols = far ? 2 : Math.max(2, Math.ceil(road.w / 2.5));
-    const e0 = s0 <= 0.001 ? s0 - (seg.extA || 0) : s0, e1 = s1 >= seg.L - 0.001 ? s1 + (seg.extB || 0) : s1;
-    const steps = Math.max(1, Math.ceil((e1 - e0) / (far ? 12 : 3)));
+    // inicio y fin de cada franja según su desplazamiento (inglete en los quiebres)
+    const S0 = (off) => (s0 <= 0.001 ? miterA(seg, off) : s0), S1 = (off) => (s1 >= seg.L - 0.001 ? miterB(seg, off) : s1);
+    const steps = Math.max(1, Math.ceil((s1 - s0) / (far ? 12 : 3)));
     let prev = null;
     for (let k = 0; k <= steps; k++) {
-      const a = e0 + ((e1 - e0) * k) / steps;
       const row = [];
-      for (let ci = 0; ci <= cols; ci++) { const q = at(a, half - (road.w * ci) / cols); q[1] += lift; row.push(q); }
+      for (let ci = 0; ci <= cols; ci++) {
+        const off = half - (road.w * ci) / cols, a0 = S0(off);
+        const q = at(a0 + ((S1(off) - a0) * k) / steps, off); q[1] += lift; row.push(q);
+      }
       if (prev) for (let ci = 0; ci < cols; ci++) P.quad(row[ci + 1], row[ci], prev[ci], prev[ci + 1], [0, 1, 0], asphalt);
       prev = row;
     }
@@ -455,6 +500,10 @@ export class CityRenderer {
   }
 }
 
+// Corte a inglete: dónde empieza/termina la línea desplazada "off" (izquierda +) de un tramo
+const miterA = (seg, off) => off * (seg.tA || 0);
+const miterB = (seg, off) => seg.L - off * (seg.tB || 0);
+
 // Piezas de banqueta de un lado del tramo: [ini, fin] de la orilla interior y de la exterior (m)
 function walkPieces(net, seg, side) {
   const road = seg.road, half = road.w / 2;
@@ -468,7 +517,8 @@ function walkPieces(net, seg, side) {
     const i0 = Math.max(I[0], O[0] - slack), i1 = Math.min(I[1], O[1] + slack);
     const o0 = Math.max(O[0], I[0] - slack), o1 = Math.min(O[1], I[1] + slack);
     if (i1 - i0 < 0.3 && o1 - o0 < 0.3) continue;
-    out.push([i0 <= 0.001 ? i0 - (seg.extA || 0) : i0, i1 >= seg.L - 0.001 ? i1 + (seg.extB || 0) : i1, o0 <= 0.001 ? o0 - (seg.extA || 0) : o0, o1 >= seg.L - 0.001 ? o1 + (seg.extB || 0) : o1]);
+    const offI = side * half, offO = side * (half + road.sw);
+    out.push([i0 <= 0.001 ? miterA(seg, offI) : i0, i1 >= seg.L - 0.001 ? miterB(seg, offI) : i1, o0 <= 0.001 ? miterA(seg, offO) : o0, o1 >= seg.L - 0.001 ? miterB(seg, offO) : o1]);
   }
   return out;
 }
@@ -539,9 +589,16 @@ function makeWindowTexture() {
   const glass = ['#3e5163', '#4a6178', '#56708a', '#40566b', '#5f7a93', '#6d8aa3'];
   let seed = 7;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cn = document.createElement('canvas');
+  cn.width = 256; cn.height = 256;
+  const gn = cn.getContext('2d');
+  gn.fillStyle = '#000000';
+  gn.fillRect(0, 0, 256, 256);
+  const warm = ['#ffd98a', '#ffc870', '#ffe6b0', '#bcd7ff'];
   for (let gy = 0; gy < 4; gy++) {
     for (let gx = 0; gx < 4; gx++) {
       const x = gx * 64, y = gy * 64;
+      if (rnd() < 0.5) { gn.fillStyle = warm[Math.floor(rnd() * warm.length)]; gn.fillRect(x + 11, y + 13, 42, 37); }
       g.fillStyle = '#d9d9d9';
       g.fillRect(x + 9, y + 11, 46, 41);
       const base = glass[Math.floor(rnd() * glass.length)];
@@ -555,10 +612,20 @@ function makeWindowTexture() {
       g.fillRect(x + 31, y + 13, 2, 37);
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  const mk = (cv) => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t; };
+  return [mk(c), mk(cn)];
+}
+
+// Material de la ciudad: los colores de vértice mayores que 1 (focos) brillan de noche
+function glowMaterial(mat) {
+  const uNight = { value: 0 };
+  mat.userData.uNight = uNight;
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uNight = uNight;
+    sh.fragmentShader = 'uniform float uNight;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vColor * clamp(max(vColor.r, max(vColor.g, vColor.b)) - 1.0, 0.0, 1.0) * uNight;');
+  };
+  return mat;
 }
 
 export { mergeIntervals };

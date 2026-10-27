@@ -99,7 +99,7 @@ export class World {
     if (prof.job === 'delivery') p.task = this.jobs.delivery.newTask(p);
 
     this.send(ws, {
-      t: 'welcome', id, name: p.name, color: p.color,
+      t: 'welcome', id, name: p.name, color: p.color, clock: Date.now(),
       money: prof.money, health: prof.health, inv: prof.inv, job: prof.job, task: p.task,
       pos: { x: p.x, y: p.y, z: p.z, ry: p.ry },
       vehiclesOwned: (prof.vehicles || []).map((v) => v.type),

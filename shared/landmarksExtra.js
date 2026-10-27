@@ -301,45 +301,97 @@ export const EXTRA_BUILDERS = {
 
   // ---------------- transporte ----------------
   aeropuerto(site) {
+    // Aeropuerto internacional: pista al fondo (norte), calle de rodaje paralela, plataforma con
+    // aviones, terminal con pasillos telescópicos, torre de control, hangares, carga y combustible.
+    // El frente (+Z) da a la Av. del Aeropuerto: estacionamiento y acceso.
     const P = [];
     const { hx, hz } = site;
-    P.push(decal(0, 0, hx * 2, hz * 2, 0x8e9d76));
-    // pista
-    const rz = -hz + 16;
-    P.push(decal(0, rz, hx * 2 - 10, 26, 0x3c4045, { y: 0.01 }));
-    for (let x = -hx + 14; x < hx - 14; x += 18) P.push(decal(x, rz, 9, 0.6, 0xffffff, { y: 0.02 }));
+    const ASPH = 0x3a3e43, CONC = 0x8f9296, YEL = 0xf2c230;
+    P.push(decal(0, 0, hx * 2, hz * 2, 0x8fa06e));
+    // ---- pista 2 aguas: 2*hx-20 de largo, 32 m de ancho ----
+    const rz = -hz + 24, RL = hx * 2 - 20;
+    P.push(decal(0, rz, RL + 6, 38, 0x6f7a5a, { y: 0.005 }));            // franja de seguridad
+    P.push(decal(0, rz, RL, 32, ASPH, { y: 0.01 }));
+    for (let x = -RL / 2 + 40; x < RL / 2 - 40; x += 24) P.push(decal(x, rz, 12, 0.7, 0xffffff, { y: 0.02 }));
     for (const s of [-1, 1]) {
-      P.push(decal(s * (hx - 12), rz, 1.2, 22, 0xffffff, { y: 0.02 }));
-      for (let i = 0; i < 6; i++) P.push(decal(s * (hx - 17), rz - 10 + i * 4, 6, 1.4, 0xffffff, { y: 0.02, det: 1 }));
+      P.push(decal(0, rz + s * 15, RL - 4, 0.45, 0xffffff, { y: 0.02 }));            // orillas
+      for (let i = 0; i < 8; i++) P.push(decal(s * (RL / 2 - 9), rz - 12.5 + i * 3.6, 12, 1.6, 0xffffff, { y: 0.02 }));   // umbral
+      P.push(decal(s * (RL / 2 - 34), rz - 6, 16, 3.5, 0xffffff, { y: 0.02 }));      // zona de toma de contacto
+      P.push(decal(s * (RL / 2 - 34), rz + 6, 16, 3.5, 0xffffff, { y: 0.02 }));
+      P.push(decal(s * (RL / 2 + 1), rz, 1.2, 32, 0xffffff, { y: 0.02 }));
     }
-    // calle de rodaje y plataforma
-    P.push(decal(0, 2, hx * 1.4, 12, 0x51565b, { y: 0.01 }));
-    P.push(decal(-hx * 0.45, -8, 10, 16, 0x51565b, { y: 0.01 }));
-    P.push(decal(hx * 0.45, -8, 10, 16, 0x51565b, { y: 0.01 }));
-    P.push(decal(0, 2, hx * 1.4, 0.3, 0xfdd835, { y: 0.02, det: 1 }));
-    // terminal de vidrio y torre de control
-    const tz = hz - 13;
-    P.push(box(0, tz, 70, 16, 11, 0xe8edf0, { f: 'glassBlue', fh: 5.5 }));
-    P.push(slab(0, tz, 11, 74, 19, 0.8, 0xcfd8dc));
-    P.push(sign(0, tz + 8.1, 8.6, 24, 1.6, 'AEROPUERTO INTERNACIONAL PUERTO NOVA', '#0d47a1'));
-    for (let i = 0; i < 3; i++) P.push(box(-20 + i * 20, tz - 10, 3, 6, 4.5, 0xcfd8dc, { y: 0 }));
-    P.push(cyl(46, tz, 0, 3.0, 2.4, 30, 10, 0xeceff1, { col: 1 }));
-    P.push(cyl(46, tz, 30, 4.6, 4.6, 4, 10, 0x37474f, { col: 0 }));
-    P.push(cyl(46, tz, 30.3, 4.7, 4.7, 3, 10, 0x4fc3f7, { det: 0 }));
-    P.push(cyl(46, tz, 34, 4.8, 3.4, 0.8, 10, 0xeceff1));
-    // hangares
-    for (const s of [-1, 1]) {
-      const x = s * (hx - 28);
-      P.push(box(x, hz - 14, 36, 20, 12, 0xb0bec5));
-      P.push(gable(x, hz - 14, 12, 36, 20, 3, 0x78909c, 0.2));
-      P.push(door(x, hz - 14 - 10.05, 26, 10, 0x90a4ae, Math.PI, { cell: 'rollup' }));
+    // luces de orilla de pista
+    for (let x = -RL / 2; x <= RL / 2; x += 30) for (const s of [-1, 1]) P.push(deco(x, rz + s * 17.5, 0.35, 0.35, 0.45, s > 0 ? 0xfff59d : 0xe0e0e0, { det: 1 }));
+    // ---- calle de rodaje paralela y conexiones ----
+    const tz = rz + 44;
+    P.push(decal(0, tz, RL - 30, 16, ASPH, { y: 0.01 }));
+    P.push(decal(0, tz, RL - 34, 0.35, YEL, { y: 0.02 }));
+    for (const x of [-RL / 2 + 20, 0, RL / 2 - 20]) {
+      P.push(decal(x, (rz + tz) / 2, 18, tz - rz, ASPH, { y: 0.012 }));
+      P.push(decal(x, (rz + tz) / 2, 0.35, tz - rz, YEL, { y: 0.022 }));
     }
-    airplane(P, -30, 2, Math.PI / 2, 1, 0x1565c0);
-    airplane(P, 25, 2, -Math.PI / 2, 0.9, 0xc62828);
-    airplane(P, hx - 28, -1, 0.3, 0.55, 0x2e7d32);
-    // estacionamiento al frente y cerca perimetral
-    perimeter(P, hx - 0.5, hz - 0.5, 2.6, 0x9e9e9e, 0, 'rail', { colH: 3 });
-    for (let x = -hx + 6; x < hx - 6; x += 22) P.push(prop('floodlight', x, hz - 2, { col: 1 }));
+    // ---- plataforma (apron) ----
+    const az0 = tz + 8, az1 = hz - 58;
+    P.push(decal(-hx * 0.05, (az0 + az1) / 2, hx * 1.5, az1 - az0, CONC, { y: 0.008 }));
+    for (let i = -3; i <= 3; i++) P.push(decal(i * 26 - hx * 0.05, (az0 + az1) / 2, 0.3, az1 - az0 - 4, YEL, { y: 0.02, det: 1 }));
+    // ---- terminal ----
+    const tw = 120, td = 30, tcz = hz - 42, th = 14;
+    P.push(box(0, tcz, tw, td, th, 0xe6ebee, { f: 'glassBlue', fh: 4.6, par: 0.6 }));
+    P.push(box(0, tcz - 2, tw * 0.55, td - 6, 5, 0xd5dde2, { y: th, f: 'glassTeal', fh: 5, par: 0.4 }));
+    P.push(slab(0, tcz, th + 0.1, tw + 10, td + 10, 1.0, 0xcfd8dc));                    // gran alero
+    P.push(slab(0, tcz + td / 2 + 7, 5.4, tw * 0.8, 10, 0.5, 0xeceff1));                 // marquesina de llegada
+    for (let i = 0; i < 9; i++) P.push(cyl(-tw * 0.38 + i * (tw * 0.76 / 8), tcz + td / 2 + 11, 0, 0.35, 0.3, 5.4, 8, 0xb0bec5, { col: 1 }));
+    P.push(sign(0, tcz + td / 2 + 0.2, th - 3.2, 40, 2.2, 'AEROPUERTO INTERNACIONAL PUERTO NOVA', '#0d47a1'));
+    // pasillos telescópicos hacia los aviones
+    for (const x of [-38, 0, 38]) {
+      P.push(box(x, tcz - td / 2 - 9, 3.2, 18, 3.0, 0xcfd8dc, { y: 4.2, colH: 7.2 }));
+      P.push(deco(x, tcz - td / 2 - 18.5, 4.2, 3.2, 3.6, 0x90a4ae, { y: 3.9, det: 0 }));
+      P.push(cyl(x, tcz - td / 2 - 16, 0, 0.35, 0.35, 4.2, 6, 0x78909c, { col: 1 }));
+    }
+    airplane(P, -38, tcz - td / 2 - 36, Math.PI, 1.15, 0x1565c0);
+    airplane(P, 0, tcz - td / 2 - 36, Math.PI, 1.0, 0xc62828);
+    airplane(P, 38, tcz - td / 2 - 36, Math.PI, 1.1, 0x2e7d32);
+    airplane(P, hx * 0.42, tz, -Math.PI / 2, 1.0, 0xef6c00);                          // rodando
+    // torre de control
+    const cx = tw / 2 + 22, cz = tcz - 4;
+    P.push(box(cx, cz, 10, 10, 6, 0xe0e0e0, { f: 'officeBand', fh: 3 }));
+    P.push(cyl(cx, cz, 6, 2.8, 2.3, 30, 12, 0xeceff1, { col: 1 }));
+    P.push(cyl(cx, cz, 36, 5.2, 5.6, 1.0, 12, 0xcfd8dc));
+    P.push(cyl(cx, cz, 37, 5.0, 5.4, 4, 12, 0x37474f));
+    P.push(cyl(cx, cz, 37.3, 5.1, 5.5, 3.3, 12, 0x4fc3f7));
+    P.push(cyl(cx, cz, 41, 5.8, 3.6, 0.9, 12, 0xeceff1));
+    P.push(cyl(cx, cz, 41.9, 0.12, 0.06, 4.5, 5, 0xb0b4b8));
+    P.push(cyl(cx + 9, cz + 4, 0, 3.4, 3.4, 9, 12, 0xeceff1, { col: 1 }));          // radar
+    P.push({ k: 'cyl', x: cx + 9, z: cz + 4, y: 9, r: 3.6, r2: 0.4, h: 3.4, seg: 12, c: 0xffffff, col: 0, det: 0 });
+    // hangares (oeste), puertas hacia la plataforma
+    for (let i = 0; i < 3; i++) {
+      const x = -hx + 34 + i * 46, z = az0 + 22;
+      P.push(box(x, z, 40, 30, 12, 0xb7c3c9));
+      P.push({ k: 'gable', x, z, y: 12, w: 40, d: 30, rh: 4, c: 0x6f8794, over: 0.4 });
+      P.push(door(x, z - 15.05, 32, 10.5, 0x90a4ae, Math.PI, { cell: 'rollup' }));
+      P.push(sign(x, z - 15.1, 11, 14, 1.6, 'HANGAR ' + (i + 1), '#263238', '#ffffff', Math.PI));
+      P.push(decal(x, z - 26, 30, 22, CONC, { y: 0.009 }));
+    }
+    airplane(P, -hx + 34, az0 - 2, 0, 0.55, 0x6a1b9a);
+    // carga y tanques de combustible (este)
+    const ex = hx - 40;
+    P.push(box(ex, az0 + 20, 44, 26, 10, 0xc8b99a, { f: 'officeBand', fh: 5 }));
+    P.push(sign(ex, az0 + 20 - 13.1, 8.5, 16, 1.6, 'CARGA AÉREA', '#bf360c', '#ffffff', Math.PI));
+    for (let i = 0; i < 3; i++) {
+      P.push(cyl(ex - 14 + i * 12, az1 + 14, 0, 4.2, 4.2, 7, 12, 0xeceff1, { col: 1 }));
+      P.push(cyl(ex - 14 + i * 12, az1 + 14, 7, 4.3, 3.2, 0.9, 12, 0xcfd8dc));
+    }
+    // estacionamiento y vialidad de acceso al frente
+    parking(P, -hx * 0.45, hz - 12, 90, 14, 0, 0.45, new Rng(17));
+    parking(P, hx * 0.45, hz - 12, 90, 14, 0, 0.35, new Rng(29));
+    P.push(decal(0, hz - 14, 26, 28, ASPH, { y: 0.006 }));
+    P.push(decal(0, tcz + td / 2 + 8, tw * 0.9, 9, ASPH, { y: 0.007 }));
+    // jardín frente a la terminal, manga de viento y cerca
+    for (let i = 0; i < 8; i++) P.push(prop('palm', -tw / 2 + 6 + i * ((tw - 12) / 7), hz - 24, { col: 1 }));
+    P.push(cyl(-hx + 12, rz + 24, 0, 0.08, 0.08, 6, 5, 0xbdbdbd));
+    P.push({ k: 'cyl', x: -hx + 12.9, z: rz + 24, y: 5.6, r: 0.4, r2: 0.15, h: 1.8, seg: 6, c: 0xff6d00, col: 0, det: 0 });
+    perimeter(P, hx - 0.5, hz - 0.5, 2.6, 0x9e9e9e, 30, 'rail', { colH: 3 });
+    for (let x = -hx * 0.7; x <= hx * 0.7; x += 35) P.push(prop('floodlight', x, az1 - 2, { col: 1 }));
     return { parts: P, points: { door: [0, hz + 2] } };
   },
 
