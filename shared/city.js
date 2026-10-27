@@ -15,7 +15,7 @@ import { Rng, hashInts } from './rng.js';
 import { CITY_SEED } from './constants.js';
 import { Heightmap, playable, SEA_LEVEL, fenceLines, coastLines, landDist, isSandy, lakeDist, pointInPoly, inWorld } from './terrain.js';
 import { DISTRICTS, districtAt } from './districts.js';
-import { RoadNet, buildMainRoads, buildLocalRoads, rectContains, segDist } from './roads.js';
+import { RoadNet, buildMainRoads, buildLocalRoads, rectContains, segDist, segPointDist } from './roads.js';
 import { buildBlocks, frontages, runAt, rayToPoly, rectInPoly, insetPoly, removeLoops, signedArea } from './blocks.js';
 import { SITE_DEFS, SAFE_ZONES, STREET_RULES, ROUNDABOUTS, LAKE, DAM, PIERS, P as MP } from './mapdata.js';
 import { SITE_BUILDERS as BASE_BUILDERS } from './landmarks.js';
@@ -82,11 +82,15 @@ export function generateCity(seed = CITY_SEED) {
 
   // ---------- 1-2. calles y avenidas ----------
   const net = new RoadNet();
+  // primero las avenidas (ya aplanadas): así las calles de barrio ven sus terraplenes y no se
+  // trazan conectores imposibles (rampas de 10 m en 15 m)
   buildMainRoads(net);
+  flattenRoads(hm, net.roads);
+  for (const r of net.roads) r.flat = true;
   buildLocalRoads(net, reserved, (x, z, dx, dz) => Math.abs(hm.height(x + dx * 4, z + dz * 4) - hm.height(x, z)) / 4);
   city.net = net;
   city.roads = net.roads;
-  flattenRoads(hm, net);
+  flattenRoads(hm, net.roads.filter((r) => !r.flat));
   // una calle que termina en la entrada de un lugar (puerto, mina...) no lleva valla: el lugar es su destino
   const fixedRects = SITE_DEFS.filter((d) => d.fixed).map((d) => (d.kind === 'puerto' ? pierSite(PIERS.find((p) => p.id === 'puerto')) : { cx: d.at[0], cz: d.at[1], hx: d.hx, hz: d.hz, rot: d.rot || 0 }));
   for (const road of net.roads) for (const cp of road.caps) {
@@ -407,28 +411,101 @@ function resample(pts, step, closed) {
   return out;
 }
 
-// Aplana el terreno bajo las calles: alturas suavizadas a lo largo; en cruces toma la altura ya fijada
-function flattenRoads(hm, net) {
-  const order = [...net.roads].sort((a, b) => rank(a) - rank(b));
-  for (const road of order) {
-    const pts = resample(road.pts, 6, road.closed);
-    const raw = pts.map(([x, z]) => hm.height(x, z));
-    const pin = pts.map(([x, z]) => hm.masked(x, z));
-    const minH = road.bridge ? 2.2 : 1.2;
-    const sm = raw.map((_, i) => {
-      if (pin[i]) return Math.max(minH, raw[i]);
-      let s = 0, n = 0;
-      for (let k = -3; k <= 3; k++) { const j = road.closed ? (i + k + raw.length) % raw.length : i + k; if (j >= 0 && j < raw.length) { s += raw[j]; n++; } }
-      return Math.max(minH, s / n);
+// Aplana el terreno bajo las calles. El perfil de TODA la red se resuelve junto (como un estudio
+// de topografía): cada calle es suave a lo largo, sigue al terreno de lejos, y en cada cruce las
+// dos calles comparten la misma altura (sin escalones ni rampas bruscas al entrar a una avenida).
+function flattenRoads(hm, list) {
+  const roads = list.filter((r) => r.pts.length >= 2);
+  const R = [];
+  let N = 0;
+  for (const road of roads) {
+    const pts = resample(road.pts, 4, road.closed);
+    R.push({ road, pts, off: N });
+    N += pts.length;
+  }
+  const X = new Float32Array(N), Z = new Float32Array(N), raw = new Float32Array(N), h = new Float32Array(N), alpha = new Float32Array(N), minH = new Float32Array(N), owner = new Int32Array(N), fixed = new Uint8Array(N);
+  const links = Array.from({ length: N }, () => []);
+  const link = (a, b, w) => { links[a].push(b, w); links[b].push(a, w); };
+  R.forEach((rr, ri) => {
+    const { road, pts, off } = rr;
+    // rigidez: las avenidas son más planas; los caminos de montaña siguen más al cerro
+    const a = road.cls === 'avenida' || road.cls === 'boulevard' ? 0.006 : road.cls === 'subida' ? 0.03 : road.cls === 'glorieta' ? 0.002 : 0.012;
+    let avg = 0;
+    pts.forEach(([x, z], k) => { avg += hm.height(x, z) / pts.length; });
+    pts.forEach(([x, z], k) => {
+      const i = off + k;
+      X[i] = x; Z[i] = z; owner[i] = ri;
+      raw[i] = road.cls === 'glorieta' ? avg : hm.height(x, z);   // la glorieta tiende a ser plana
+      minH[i] = road.bridge ? 2.2 : 1.2;
+      if (hm.masked(x, z)) { fixed[i] = 1; raw[i] = hm.height(x, z); }  // sobre una calle ya aplanada
+      h[i] = Math.max(minH[i], raw[i]);
+      alpha[i] = a;
+      if (k > 0) link(i - 1, i, 1);
     });
-    const core = road.bridge ? road.w / 2 + road.sw + 1.5 : road.w / 2 + road.sw + 3.2;
-    const n = road.closed ? pts.length : pts.length - 1;
-    for (let i = 0; i < n; i++) {
-      const j = (i + 1) % pts.length;
-      hm.flattenSegment(pts[i][0], pts[i][1], sm[i], pts[j][0], pts[j][1], sm[j], core, road.bridge ? 2 : 7, true);
+    if (road.closed && pts.length > 2) link(off + pts.length - 1, off, 1);
+  });
+  // cruces: un punto dentro del corredor de otra calle toma la altura de esa calle
+  const CS = 8, grid = new Map();
+  for (let i = 0; i < N; i++) { const k = Math.floor(X[i] / CS) * 92821 + Math.floor(Z[i] / CS); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(i); }
+  for (let i = 0; i < N; i++) {
+    const A = R[owner[i]].road;
+    const best = new Map();
+    const gi = Math.floor(X[i] / CS), gj = Math.floor(Z[i] / CS);
+    for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++) {
+      for (const j of grid.get((gi + di) * 92821 + gj + dj) || []) {
+        if (owner[j] === owner[i] || j < i) continue;
+        const B = R[owner[j]].road;
+        const d = Math.hypot(X[j] - X[i], Z[j] - Z[i]);
+        if (d > Math.max(A.w / 2 + A.sw, B.w / 2 + B.sw) + 2.5) continue;
+        const o = best.get(owner[j]);
+        if (!o || d < o[1]) best.set(owner[j], [j, d]);
+      }
+    }
+    for (const [j] of best.values()) link(i, j, 10);
+  }
+  // Gauss-Seidel: altura = promedio de vecinos (suavidad) + un poco del terreno original
+  for (let it = 0; it < 900; it++) {
+    for (let i = 0; i < N; i++) {
+      if (fixed[i]) continue;
+      const L = links[i];
+      let s = alpha[i] * raw[i], w = alpha[i];
+      for (let k = 0; k < L.length; k += 2) { s += h[L[k]] * L[k + 1]; w += L[k + 1]; }
+      h[i] = Math.max(minH[i], s / w);
     }
   }
+  // aplanado: las avenidas primero. Cada calle respeta EXACTAMENTE lo ya aplanado en los cruces
+  // y se acomoda a esa altura con una transición suave (sin escalón en la orilla del cruce).
+  const order = R.map((rr, ri) => ri).sort((a, b) => rank(R[a].road) - rank(R[b].road));
+  for (const ri of order) {
+    const { road, pts, off } = R[ri];
+    const n = pts.length;
+    const target = h.subarray(off, off + n);
+    const pin = pts.map(([x, z]) => hm.masked(x, z));
+    const hs = pts.map(([x, z], k) => (pin[k] ? hm.height(x, z) : target[k]));
+    if (pin.some(Boolean)) {
+      for (let it = 0; it < 300; it++) for (let k = 0; k < n; k++) {
+        if (pin[k]) continue;
+        const p = road.closed ? hs[(k - 1 + n) % n] : hs[Math.max(0, k - 1)];
+        const q = road.closed ? hs[(k + 1) % n] : hs[Math.min(n - 1, k + 1)];
+        const nb = !road.closed && k === 0 ? q : !road.closed && k === n - 1 ? p : (p + q) / 2;
+        hs[k] = Math.max(minH[off + k], nb * 0.94 + target[k] * 0.06);
+      }
+    }
+    // pendiente máxima (12% en calles, 16% en caminos de montaña); si el cerro es más empinado
+    // la calle va en corte o en terraplén. Luego un suavizado puro (no aumenta la pendiente).
+    const g = (road.cls === 'subida' ? 0.16 : 0.12) * 4;
+    const lim = (k, ref) => { if (!pin[k]) hs[k] = clamp(hs[k], hs[ref] - g, hs[ref] + g); };
+    for (let rep = 0; rep < 4; rep++) {
+      for (let k = 1; k < n; k++) lim(k, k - 1);
+      for (let k = n - 2; k >= 0; k--) lim(k, k + 1);
+      for (let it = 0; it < 6; it++) for (let k = 1; k < n - 1; k++) if (!pin[k]) hs[k] = (hs[k - 1] + 2 * hs[k] + hs[k + 1]) / 4;
+    }
+    for (let k = 0; k < n; k++) hs[k] = Math.max(minH[off + k], hs[k]);
+    const core = road.bridge ? road.w / 2 + road.sw + 1.5 : road.w / 2 + road.sw + 4;
+    hm.flattenRoad(pts, hs, road.closed, core, road.bridge ? 2 : 6, true);
+  }
 }
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // las avenidas fijan su altura primero; las calles de barrio se acomodan a ellas
 const rank = (r) => (r.cls === 'avenida' ? 0 : r.cls === 'boulevard' ? 1 : r.cls === 'glorieta' ? 2 : r.district ? 4 : 3);
 
@@ -789,6 +866,8 @@ function spotOK(city, x, z, front = 3, minGap = 2.6) {
 const MAJOR = new Set(['avenida', 'boulevard']);
 function intersectionSigns(city, graph) {
   const { nodes } = graph;
+  const segsOf = new Map();
+  for (const sg of city.net.segs) { let a = segsOf.get(sg.road); if (!a) segsOf.set(sg.road, (a = [])); a.push(sg); }
   for (const n of nodes) {
     if (!n.out || n.out.length < 3) continue;
     const roads = n.out.map((o) => o.e.road);
@@ -802,37 +881,70 @@ function intersectionSigns(city, graph) {
       const to = nodes[o.to];
       const L = Math.hypot(to.x - n.x, to.z - n.z);
       if (L < 6) continue;
-      const dx = (n.x - to.x) / L, dz = (n.z - to.z) / L; // sentido del tráfico que LLEGA al cruce
       const other = roads.filter((q) => q !== r).reduce((m, q) => Math.max(m, q.w / 2 + q.sw), 0);
-      const back = Math.min(L - 2, other + 2.2);
-      const px = n.x - dx * back, pz = n.z - dz * back;
-      const rx = -dz, rz = dx; // lado derecho del que llega
-      if (anyMajor) {
-        // cruce con avenida: semáforos; las calles angostas de barrio llevan ALTO
-        if (MAJOR.has(r.cls) || r.w >= 9) addLight(city, px, pz, rx, rz, r);
-        else addStop(city, px, pz, rx, rz, dx, dz, r);
-      } else {
-        // cruce entre calles: ALTO a la calle que termina (T); en cruces de 4, a la de menor jerarquía
-        const through = count(r) >= 2;
-        const allThrough = roads.every((q) => count(q) >= 2);
-        if (!through || (allThrough && r.id === lowest)) addStop(city, px, pz, rx, rz, dx, dz, r);
+      // se camina por la calle REAL (no en línea recta: en curvas el poste caería sobre el asfalto)
+      const spot = (back) => alongRoad(segsOf.get(r) || [], n.x, n.z, to.x - n.x, to.z - n.z, back);
+      const sp = spot(Math.min(L - 2, other + 2.2));
+      if (!sp) continue;
+      const kind = anyMajor ? (MAJOR.has(r.cls) || r.w >= 9 ? 'light' : 'stop') : null;
+      // cruce con avenida: semáforos; las calles angostas de barrio llevan ALTO
+      // cruce entre calles: ALTO a la calle que termina (T); en cruces de 4, a la de menor jerarquía
+      const through = count(r) >= 2, allThrough = roads.every((q) => count(q) >= 2);
+      const want = kind || (!through || (allThrough && r.id === lowest) ? 'stop' : null);
+      if (!want) continue;
+      for (const extra of [0, 1.5, 3, 5]) {
+        const p = extra ? spot(Math.min(L - 1, other + 2.2 + extra)) : sp;
+        if (p && (want === 'light' ? addLight(city, p, r) : addStop(city, p, r))) break;
       }
     }
   }
 }
-function addLight(city, px, pz, rx, rz, r) {
-  const off = r.w / 2 + Math.min(1.0, r.sw * 0.4);
-  const x = px + rx * off, z = pz + rz * off;
-  if (!playable(x, z, 0) || city.sites.some((st) => rectContains(st, x, z, 0.5))) return;
-  if (nearProps(city, x, z).some((q) => q.type === 'trafficLight' && Math.hypot(q.x - x, q.z - z) < 7)) return;
-  city.props.push({ type: 'trafficLight', x, z, r: Math.atan2(-rx, -rz), col: 1 });
+// Punto a "dist" metros del cruce (x,z) caminando por los tramos de la calle hacia (dx,dz).
+// Devuelve posición, dirección del tráfico que LLEGA al cruce y lado derecho de ese tráfico.
+function alongRoad(segs, x, z, dx, dz, dist) {
+  let best = null;
+  segs.forEach((sg, k) => { const { d, t } = segPointDist(sg.ax, sg.az, sg.bx, sg.bz, x, z); if (!best || d < best.d) best = { d, t, k }; });
+  if (!best || best.d > 12) return null;
+  const dir = segs[best.k].ux * dx + segs[best.k].uz * dz >= 0 ? 1 : -1;
+  let k = best.k, s = best.t * segs[k].L, left = dist;
+  for (;;) {
+    const sg = segs[k];
+    const room = dir > 0 ? sg.L - s : s;
+    if (left <= room) {
+      const sp = s + dir * left;
+      const ux = -sg.ux * dir, uz = -sg.uz * dir;           // hacia el cruce
+      return { x: sg.ax + sg.ux * sp, z: sg.az + sg.uz * sp, dx: ux, dz: uz, rx: -uz, rz: ux };
+    }
+    left -= room;
+    let nk = k + dir;
+    if (sg.road.closed) nk = (nk + segs.length) % segs.length;
+    if (nk < 0 || nk >= segs.length) return null;
+    const nxt = segs[nk];
+    if (Math.hypot((dir > 0 ? nxt.ax : nxt.bx) - (dir > 0 ? sg.bx : sg.ax), (dir > 0 ? nxt.az : nxt.bz) - (dir > 0 ? sg.bz : sg.az)) > 0.5) return null;
+    k = nk; s = dir > 0 ? 0 : nxt.L;
+  }
 }
-function addStop(city, px, pz, rx, rz, dx, dz, r) {
+// El poste debe quedar sobre la banqueta (o el acotamiento), nunca sobre el asfalto de NINGUNA calle
+function curbSpotOK(city, x, z, margin) {
+  if (!playable(x, z, 0) || city.sites.some((st) => rectContains(st, x, z, 0.5))) return false;
+  for (const sg of city.net.near(x - 20, z - 20, x + 20, z + 20)) if (segDist(sg.ax, sg.az, sg.bx, sg.bz, x, z) < sg.road.w / 2 + margin) return false;
+  return true;
+}
+function addLight(city, p, r) {
+  const off = r.w / 2 + Math.max(0.6, Math.min(1.0, r.sw * 0.4));
+  const x = p.x + p.rx * off, z = p.z + p.rz * off;
+  if (!curbSpotOK(city, x, z, 0.45)) return false;
+  if (nearProps(city, x, z).some((q) => q.type === 'trafficLight' && Math.hypot(q.x - x, q.z - z) < 7)) return true;
+  city.props.push({ type: 'trafficLight', x, z, r: Math.atan2(-p.rx, -p.rz), col: 1 });
+  return true;
+}
+function addStop(city, p, r) {
   const off = r.w / 2 + Math.max(0.5, Math.min(1.0, r.sw * 0.5));
-  const x = px + rx * off, z = pz + rz * off;
-  if (!playable(x, z, 0) || city.sites.some((st) => rectContains(st, x, z, 0.3))) return;
-  if (nearProps(city, x, z).some((q) => q.type === 'stopSign' && Math.hypot(q.x - x, q.z - z) < 4)) return;
-  city.props.push({ type: 'stopSign', x, z, r: Math.atan2(-dx, -dz), col: 1 });
+  const x = p.x + p.rx * off, z = p.z + p.rz * off;
+  if (!curbSpotOK(city, x, z, 0.3)) return false;
+  if (nearProps(city, x, z).some((q) => q.type === 'stopSign' && Math.hypot(q.x - x, q.z - z) < 4)) return true;
+  city.props.push({ type: 'stopSign', x, z, r: Math.atan2(-p.dx, -p.dz), col: 1 });
+  return true;
 }
 
 // ---------------- faroles, árboles de banqueta, paradas, bancas, hidrantes y autos estacionados ----------------
@@ -863,6 +975,7 @@ function streetFurniture(city, net, seed) {
         const off = road.sw >= 1.2 ? half + road.sw - 0.5 : half + 0.8;
         const [x, z] = at(s, off, side);
         if (!road.bridge && !playable(x, z, 0)) continue;
+        if (road.bridge ? city.net.near(x - 20, z - 20, x + 20, z + 20).some((sg) => segDist(sg.ax, sg.az, sg.bx, sg.bz, x, z) < sg.road.w / 2 + 0.4) : !curbSpotOK(city, x, z, 0.4)) continue;
         if (nearProps(city, x, z).some((q) => (q.type === 'trafficLight' || q.type === 'stopSign') && Math.hypot(q.x - x, q.z - z) < 6)) continue;
         city.props.push({ type: style, x, z, r: Math.atan2(seg.uz * side, -seg.ux * side) + Math.PI, col: 0 });
       }

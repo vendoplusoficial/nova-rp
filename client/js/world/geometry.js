@@ -127,6 +127,15 @@ export class GeoBuilder {
     this.vert(c[0], c[1], c[2], nx, ny, nz, col);
   }
 
+  // Triángulo con normal y color por vértice (terreno suave). Se orienta hacia "up".
+  triV(a, b, c, na, nb, nc, ca, cb, cc, up = [0, 1, 0]) {
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2], e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    if ((e1y * e2z - e1z * e2y) * up[0] + (e1z * e2x - e1x * e2z) * up[1] + (e1x * e2y - e1y * e2x) * up[2] < 0) { let t = b; b = c; c = t; t = nb; nb = nc; nc = t; t = cb; cb = cc; cc = t; }
+    this.vert(a[0], a[1], a[2], na[0], na[1], na[2], ca);
+    this.vert(b[0], b[1], b[2], nb[0], nb[1], nb[2], cb);
+    this.vert(c[0], c[1], c[2], nc[0], nc[1], nc[2], cc);
+  }
+
   // Caja alineada (en el marco actual). opts: { top, bottom, noTop, win:{sx,sy,v0} }
   box(x0, y0, z0, x1, y1, z1, hex, opts = {}) {
     const top = opts.top ?? hex;
@@ -240,27 +249,53 @@ export class GeoBuilder {
     this.quad(P(-hx, hz), P(hx, hz), P(hx, -hz), P(-hx, -hz), [0, 1, 0], hex);
   }
 
-  // Techo a dos aguas (cumbrera en el eje más largo)
-  gableRoof(x0, z0, x1, z1, y, rh, hex, over = 0.35) {
+  // Faldón de techo de la orilla (e0,e1) a la cumbrera (r0,r1). Con detalle: hileras de teja
+  // (franjas de tono alterno) en lugar de una sola lámina plana.
+  roofSlope(e0, e1, r0, r1, nrm, hex, rows) {
+    if (rows <= 1) { this.quad(e0, e1, r1, r0, nrm, hex); return; }
+    const L = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const alt = shade(hex, 0.9);
+    for (let i = 0; i < rows; i++) {
+      const t0 = i / rows, t1 = (i + 1) / rows;
+      this.quad(L(e0, r0, t0), L(e1, r1, t0), L(e1, r1, t1), L(e0, r0, t1), nrm, i % 2 ? alt : hex);
+    }
+  }
+
+  // Grosor del techo: frontis (orilla) y plafón (vista desde abajo), para que no parezca de papel
+  roofEdge(x0, z0, x1, z1, y, hex) {
+    const t = 0.2, f = shade(hex, 0.72);
+    this.quad([x0, y - t, z1], [x1, y - t, z1], [x1, y, z1], [x0, y, z1], [0, 0, 1], f);
+    this.quad([x1, y - t, z0], [x0, y - t, z0], [x0, y, z0], [x1, y, z0], [0, 0, -1], f);
+    this.quad([x1, y - t, z1], [x1, y - t, z0], [x1, y, z0], [x1, y, z1], [1, 0, 0], f);
+    this.quad([x0, y - t, z0], [x0, y - t, z1], [x0, y, z1], [x0, y, z0], [-1, 0, 0], f);
+    this.quad([x0, y - t, z0], [x1, y - t, z0], [x1, y - t, z1], [x0, y - t, z1], [0, -1, 0], 0xe6e1d8);
+  }
+
+  // Techo a dos aguas (cumbrera en el eje más largo). detail: tejas, grosor y caballete
+  gableRoof(x0, z0, x1, z1, y, rh, hex, over = 0.35, detail = false) {
     x0 -= over; z0 -= over; x1 += over; z1 += over;
     const top = y + rh;
+    const rows = detail ? Math.max(2, Math.round(Math.hypot(rh, Math.min(x1 - x0, z1 - z0) / 2) / 0.45)) : 1;
+    if (detail) this.roofEdge(x0, z0, x1, z1, y, hex);
     if (x1 - x0 >= z1 - z0) {
       const cz = (z0 + z1) / 2;
-      this.quad([x1, y, z0], [x0, y, z0], [x0, top, cz], [x1, top, cz], [0, (z1 - z0) / 2, -rh], hex);
-      this.quad([x0, y, z1], [x1, y, z1], [x1, top, cz], [x0, top, cz], [0, (z1 - z0) / 2, rh], hex);
+      this.roofSlope([x1, y, z0], [x0, y, z0], [x1, top, cz], [x0, top, cz], [0, (z1 - z0) / 2, -rh], hex, rows);
+      this.roofSlope([x0, y, z1], [x1, y, z1], [x0, top, cz], [x1, top, cz], [0, (z1 - z0) / 2, rh], hex, rows);
       this.tri([x0 + over, y, z0 + over], [x0 + over, y, z1 - over], [x0 + over, top, cz], [-1, 0, 0], hex);
       this.tri([x1 - over, y, z1 - over], [x1 - over, y, z0 + over], [x1 - over, top, cz], [1, 0, 0], hex);
+      if (detail) this.box(x0, top - 0.06, cz - 0.14, x1, top + 0.1, cz + 0.14, shade(hex, 0.8));
     } else {
       const cx = (x0 + x1) / 2;
-      this.quad([x0, y, z0], [x0, y, z1], [cx, top, z1], [cx, top, z0], [-rh, (x1 - x0) / 2, 0], hex);
-      this.quad([x1, y, z1], [x1, y, z0], [cx, top, z0], [cx, top, z1], [rh, (x1 - x0) / 2, 0], hex);
+      this.roofSlope([x0, y, z0], [x0, y, z1], [cx, top, z0], [cx, top, z1], [-rh, (x1 - x0) / 2, 0], hex, rows);
+      this.roofSlope([x1, y, z1], [x1, y, z0], [cx, top, z1], [cx, top, z0], [rh, (x1 - x0) / 2, 0], hex, rows);
       this.tri([x0 + over, y, z1 - over], [x1 - over, y, z1 - over], [cx, top, z1 - over], [0, 0, 1], hex);
       this.tri([x1 - over, y, z0 + over], [x0 + over, y, z0 + over], [cx, top, z0 + over], [0, 0, -1], hex);
+      if (detail) this.box(cx - 0.14, top - 0.06, z0, cx + 0.14, top + 0.1, z1, shade(hex, 0.8));
     }
   }
 
   // Techo a cuatro aguas
-  hipRoof(x0, z0, x1, z1, y, rh, hex, over = 0.35) {
+  hipRoof(x0, z0, x1, z1, y, rh, hex, over = 0.35, detail = false) {
     x0 -= over; z0 -= over; x1 += over; z1 += over;
     const top = y + rh, w = x1 - x0, d = z1 - z0;
     const inset = Math.min(w, d) / 2;
@@ -268,16 +303,20 @@ export class GeoBuilder {
     let r0, r1;
     if (w >= d) { r0 = [x0 + inset, top, cz]; r1 = [x1 - inset, top, cz]; } else { r0 = [cx, top, z0 + inset]; r1 = [cx, top, z1 - inset]; }
     const shade2 = shade(hex, 0.9);
+    const rows = detail ? Math.max(2, Math.round(Math.hypot(rh, inset) / 0.45)) : 1;
+    if (detail) this.roofEdge(x0, z0, x1, z1, y, hex);
     if (w >= d) {
-      this.quad([x1, y, z0], [x0, y, z0], r0, r1, [0, d / 2, -rh], hex);
-      this.quad([x0, y, z1], [x1, y, z1], r1, r0, [0, d / 2, rh], hex);
-      this.tri([x0, y, z0], [x0, y, z1], r0, [-rh, w / 2, 0], shade2);
-      this.tri([x1, y, z1], [x1, y, z0], r1, [rh, w / 2, 0], shade2);
+      this.roofSlope([x1, y, z0], [x0, y, z0], r1, r0, [0, d / 2, -rh], hex, rows);
+      this.roofSlope([x0, y, z1], [x1, y, z1], r0, r1, [0, d / 2, rh], hex, rows);
+      this.roofSlope([x0, y, z0], [x0, y, z1], r0, r0, [-rh, w / 2, 0], shade2, rows);
+      this.roofSlope([x1, y, z1], [x1, y, z0], r1, r1, [rh, w / 2, 0], shade2, rows);
+      if (detail && r1[0] - r0[0] > 0.3) this.box(r0[0], top - 0.06, cz - 0.14, r1[0], top + 0.1, cz + 0.14, shade(hex, 0.8));
     } else {
-      this.quad([x0, y, z0], [x0, y, z1], r1, r0, [-rh, w / 2, 0], hex);
-      this.quad([x1, y, z1], [x1, y, z0], r0, r1, [rh, w / 2, 0], hex);
-      this.tri([x0, y, z1], [x1, y, z1], r1, [0, d / 2, rh], shade2);
-      this.tri([x1, y, z0], [x0, y, z0], r0, [0, d / 2, -rh], shade2);
+      this.roofSlope([x0, y, z0], [x0, y, z1], r0, r1, [-rh, w / 2, 0], hex, rows);
+      this.roofSlope([x1, y, z1], [x1, y, z0], r1, r0, [rh, w / 2, 0], hex, rows);
+      this.roofSlope([x0, y, z1], [x1, y, z1], r1, r1, [0, d / 2, rh], shade2, rows);
+      this.roofSlope([x1, y, z0], [x0, y, z0], r0, r0, [0, d / 2, -rh], shade2, rows);
+      if (detail && r1[2] - r0[2] > 0.3) this.box(cx - 0.14, top - 0.06, r0[2], cx + 0.14, top + 0.1, r1[2], shade(hex, 0.8));
     }
   }
 

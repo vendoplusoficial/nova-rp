@@ -169,14 +169,15 @@ export class RoadNet {
 
   // Intervalos (en t∈[0,1]) de la línea del segmento A desplazada "off" metros a su izquierda
   // que quedan dentro del corredor de OTRAS calles. extra = margen adicional.
-  blockedIntervals(A, off, extra = 0) {
+  // asphalt = true: solo cuenta el arroyo (asfalto) de la otra calle, sin sus banquetas.
+  blockedIntervals(A, off, extra = 0, asphalt = false) {
     const nx = -A.uz, nz = A.ux;
     const ax = A.ax + nx * off, az = A.az + nz * off, bx = A.bx + nx * off, bz = A.bz + nz * off;
     const out = [];
     const m = 30;
     for (const B of this.near(Math.min(ax, bx) - m, Math.min(az, bz) - m, Math.max(ax, bx) + m, Math.max(az, bz) + m)) {
       if (B.road === A.road) continue;
-      const rect = { cx: (B.ax + B.bx) / 2, cz: (B.az + B.bz) / 2, ux: B.ux, uz: B.uz, hl: B.L / 2 + 0.01, hw: B.half + extra };
+      const rect = { cx: (B.ax + B.bx) / 2, cz: (B.az + B.bz) / 2, ux: B.ux, uz: B.uz, hl: B.L / 2 + 0.01, hw: (asphalt ? B.road.w / 2 : B.half) + extra };
       const iv = clipToRect(ax, az, bx, bz, rect);
       if (iv) out.push(iv);
     }

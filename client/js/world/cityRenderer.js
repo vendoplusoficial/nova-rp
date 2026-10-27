@@ -4,7 +4,7 @@
 // Cada mosaico usa 2-4 llamadas de dibujo (geometría fusionada).
 
 import * as THREE from 'three';
-import { GeoBuilder, shade } from './geometry.js';
+import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
 import { getAtlas } from './atlas.js';
@@ -25,6 +25,8 @@ const GROUND = {
   costa: 0x8aa85f, playa: 0x93ad66, puerto: 0x8e8c86, industrial: 0x939089, aeropuerto: 0x86a05a, exclusiva: 0x67a84b,
   presa: 0x5f9a45, montana: 0x6b8f48, isla: 0x78a452, prision: 0x9a978c, campo: 0x6e9b4a,
 };
+const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
+const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const DETAIL_PROPS = new Set(['bench', 'bin', 'umbrellaBeach', 'towel', 'volleyball', 'buoy', 'mailbox', 'grill', 'lounger', 'crates', 'planter']);
 
 export class CityRenderer {
@@ -96,9 +98,10 @@ export class CityRenderer {
       const half = road.w / 2;
       seg.free = {
         c: freeIntervals(net.blockedIntervals(seg, 0, 1.5)),
-        l: road.sw > 0 ? freeIntervals(net.blockedIntervals(seg, half + road.sw / 2, 0)) : [],
-        r: road.sw > 0 ? freeIntervals(net.blockedIntervals(seg, -(half + road.sw / 2), 0)) : [],
       };
+      // banquetas: su orilla interior y exterior se recortan por separado contra el ASFALTO de
+      // las otras calles; así la esquina queda cerrada y sigue el ángulo del cruce
+      seg.walk = { l: road.sw > 0 ? walkPieces(net, seg, 1) : [], r: road.sw > 0 ? walkPieces(net, seg, -1) : [] };
       const n = Math.max(1, Math.ceil(seg.L / 12));
       for (let k = 0; k < n; k++) {
         const s0 = (k / n) * seg.L, s1 = ((k + 1) / n) * seg.L;
@@ -207,25 +210,37 @@ export class CityRenderer {
   }
 
   // ---------- terreno ----------
+  // Malla continua con normal y color POR VÉRTICE: las laderas se ven suaves (sin triángulos
+  // sueltos de otro color) y los mosaicos vecinos coinciden exactamente en el borde.
   terrain(P, t, far = false) {
-    const hm = this.hm, st = far ? 2 : 1, res = hm.res * st;
+    const hm = this.hm, st = far ? 2 : 1;
     const i0 = Math.round((t.x0 - hm.x0) / hm.res), j0 = Math.round((t.z0 - hm.z0) / hm.res);
     const n = TILE / hm.res;
     // bajo calles y banquetas el terreno se dibuja más bajo: nunca asoma por el asfalto
     if (!t.low) t.low = this.lowered(t, i0, j0, n);
     const low = t.low, ln = n + 1;
-    const H = (i, j) => hm.h[Math.min(j, hm.nz - 1) * hm.nx + Math.min(i, hm.nx - 1)] - low[Math.min(j - j0, n) * ln + Math.min(i - i0, n)];
-    for (let j = j0; j < j0 + n && j < hm.nz - 1; j += st) {
-      for (let i = i0; i < i0 + n && i < hm.nx - 1; i += st) {
-        const x = hm.x0 + i * hm.res, z = hm.z0 + j * hm.res;
-        const h00 = H(i, j), h10 = H(i + st, j), h01 = H(i, j + st), h11 = H(i + st, j + st);
-        if (h00 < -3 && h10 < -3 && h01 < -3 && h11 < -3) continue; // fondo marino profundo
-        const a = [x, h00, z], b = [x + res, h10, z], c = [x + res, h11, z + res], d = [x, h01, z + res];
+    const raw = (i, j) => hm.h[clampI(j, 0, hm.nz - 1) * hm.nx + clampI(i, 0, hm.nx - 1)];
+    const m = n / st + 1;
+    const V = new Array(m * m), Nn = new Array(m * m), C = new Array(m * m);
+    for (let b = 0; b < m; b++) for (let a = 0; a < m; a++) {
+      const i = i0 + a * st, j = j0 + b * st;
+      const x = hm.x0 + i * hm.res, z = hm.z0 + j * hm.res;
+      const h = raw(i, j);
+      // normal suave por diferencias centrales (8 m)
+      const gx = (raw(i + 1, j) - raw(i - 1, j)) / (2 * hm.res), gz = (raw(i, j + 1) - raw(i, j - 1)) / (2 * hm.res);
+      const L = Math.hypot(gx, 1, gz);
+      const k = b * m + a;
+      V[k] = [x, h - low[Math.min(j - j0, n) * ln + Math.min(i - i0, n)], z];
+      Nn[k] = [-gx / L, 1 / L, -gz / L];
+      C[k] = lin(this.groundColor(x, z, h, Math.hypot(gx, gz)));
+    }
+    for (let b = 0; b < m - 1; b++) {
+      for (let a = 0; a < m - 1; a++) {
+        const k00 = b * m + a, k10 = k00 + 1, k01 = k00 + m, k11 = k01 + 1;
+        if (V[k00][1] < -3 && V[k10][1] < -3 && V[k01][1] < -3 && V[k11][1] < -3) continue; // fondo marino profundo
         // dos triángulos, diagonal (i,j)-(i+1,j+1) igual que la física
-        const c1 = this.groundColor(x + res * 0.66, z + res * 0.33, (h00 + h10 + h11) / 3, Math.abs(h10 - h00) + Math.abs(h11 - h10));
-        const c2 = this.groundColor(x + res * 0.33, z + res * 0.66, (h00 + h01 + h11) / 3, Math.abs(h01 - h00) + Math.abs(h11 - h01));
-        P.tri(a, c, b, faceNormal(a, c, b), c1);
-        P.tri(a, d, c, faceNormal(a, d, c), c2);
+        P.triV(V[k00], V[k11], V[k10], Nn[k00], Nn[k11], Nn[k10], C[k00], C[k11], C[k10]);
+        P.triV(V[k00], V[k01], V[k11], Nn[k00], Nn[k01], Nn[k11], C[k00], C[k01], C[k11]);
       }
     }
   }
@@ -245,25 +260,29 @@ export class CityRenderer {
     return out;
   }
 
+  // slope = pendiente (desnivel / distancia). Roca y tierra se mezclan poco a poco con el pasto.
   groundColor(x, z, h, slope) {
     const n = fbm(x * 0.03, z * 0.03, 5, 2);
     let base;
     const ld = landDist(x, z);
     if (h < 0.15) base = 0xbfae82;                                         // fondo cerca de la orilla
-    else if (isSandy(x, z) && ld < 70 && h < 4) base = h < 0.8 ? 0xd9c693 : 0xe6d6a8;   // playa
+    else if (isSandy(x, z) && ld < 70 && h < 4) base = mixHex(0xd9c693, 0xe6d6a8, smoothstepC(0.5, 1.1, h));   // playa
     else if (lakeDist(x, z) > -4 && h < LAKE_LEVEL + 1.5) base = 0xa99d7c;  // orilla del lago
     else if (!playable(x, z, -2)) {
-      // sierra: roca en lo empinado, pasto alpino arriba, bosque abajo
-      base = slope > 2.4 ? 0x8b8778 : h > 55 ? 0x8a9466 : h > 30 ? 0x6f8c4c : 0x5f8a45;
+      // sierra: bosque abajo, pasto alpino arriba y roca en lo empinado
+      base = h > 55 ? mixHex(0x6f8c4c, 0x8a9466, smoothstepC(55, 75, h)) : mixHex(0x5f8a45, 0x6f8c4c, smoothstepC(22, 40, h));
+      base = mixHex(base, 0x8b8778, smoothstepC(0.55, 1.0, slope));
       if (ld < 14 && h < 5) base = 0x9a9077;                               // acantilado / costa rocosa
     } else {
       const d = districtAt(x, z);
       base = GROUND[d] ?? 0x6e9f4c;
       // barrio popular y campo: manchas de pasto entre la tierra (no un llano uniforme)
-      if ((d === 'popular' || d === 'campo' || d === 'montana') && fbm(x * 0.06, z * 0.06, 9, 2) > 0.05) base = d === 'popular' ? 0x86a058 : 0x7f9a50;
-      if (slope > 2.6) base = 0x8b8778;
+      if (d === 'popular' || d === 'campo' || d === 'montana') base = mixHex(base, d === 'popular' ? 0x86a058 : 0x7f9a50, smoothstepC(-0.05, 0.15, fbm(x * 0.06, z * 0.06, 9, 2)));
+      // taludes: con pasto (no pavimento) y tierra en lo muy empinado
+      base = mixHex(base, 0x6f9c4b, smoothstepC(0.18, 0.45, slope));
+      base = mixHex(base, 0x9a8f74, smoothstepC(0.75, 1.2, slope));
     }
-    return shade(base, 0.93 + n * 0.14);
+    return shade(base, 0.94 + n * 0.12);
   }
 
   // ---------- calles ----------
@@ -291,32 +310,41 @@ export class CityRenderer {
       if (prev) for (let ci = 0; ci < cols; ci++) P.quad(row[ci + 1], row[ci], prev[ci], prev[ci + 1], [0, 1, 0], asphalt);
       prev = row;
     }
-    // banquetas con bordillo
+    // banquetas con bordillo (trapecios: la orilla interior y la exterior terminan donde empieza
+    // el asfalto de la calle que cruza)
     if (road.sw > 0) {
+      const lo = s0 <= 0.001 ? -Infinity : s0, hi = s1 >= seg.L - 0.001 ? Infinity : s1;
       for (const side of [1, -1]) {
-        for (const [f0, f1] of seg.free[side > 0 ? 'l' : 'r']) {
-          let a = Math.max(s0, f0 * seg.L), b = Math.min(s1, f1 * seg.L);
-          if (b - a < 0.3) continue;
-          if (a <= 0.001) a -= seg.extA || 0;
-          if (b >= seg.L - 0.001) b += seg.extB || 0;
-          const st = Math.max(1, Math.ceil((b - a) / (far ? 12 : 4)));
+        for (const [i0, i1, o0, o1] of seg.walk[side > 0 ? 'l' : 'r']) {
+          // parámetro u∈[0,1] a lo largo de la pieza; este mosaico dibuja la parte cuyo centro cae en [s0,s1)
+          const m0 = (i0 + o0) / 2, dm = (i1 + o1) / 2 - m0;
+          if (dm < 0.05) continue;
+          const ua = Math.max(0, (lo - m0) / dm), ub = Math.min(1, (hi - m0) / dm);
+          if (ub - ua < 1e-4) continue;
+          const st = Math.max(1, Math.ceil(((ub - ua) * dm) / (far ? 12 : 4)));
+          const IN = (u) => i0 + (i1 - i0) * u, OUT = (u) => o0 + (o1 - o0) * u;
           for (let k = 0; k < st; k++) {
-            const sa = a + ((b - a) * k) / st, sb = a + ((b - a) * (k + 1)) / st;
-            const ia = at(sa, side * half), ib = at(sb, side * half);
-            const oa = at(sa, side * (half + road.sw)), ob = at(sb, side * (half + road.sw));
+            const u0 = ua + ((ub - ua) * k) / st, u1 = ua + ((ub - ua) * (k + 1)) / st;
+            const ia = at(IN(u0), side * half), ib = at(IN(u1), side * half);
+            const oa = at(OUT(u0), side * (half + road.sw)), ob = at(OUT(u1), side * (half + road.sw));
             for (const p of [ia, ib, oa, ob]) p[1] += lift + 0.075;
             P.quad(ia, ib, ob, oa, [0, 1, 0], SIDEWALK);
-            if (!far) {
-              P.quad([ia[0], ia[1] - 0.12, ia[2]], [ib[0], ib[1] - 0.12, ib[2]], ib, ia, [-nx * side, 0, -nz * side], CURB);
-              // bordillo claro y juntas de la banqueta cada ~2.5 m
-              const ca = at(sa, side * (half + 0.22)), cb = at(sb, side * (half + 0.22));
-              ca[1] = ia[1] + 0.006; cb[1] = ib[1] + 0.006;
-              P.quad([ia[0], ia[1] + 0.006, ia[2]], [ib[0], ib[1] + 0.006, ib[2]], cb, ca, [0, 1, 0], CURB);
-              if (road.sw >= 1.5) for (let q = Math.ceil(sa / 2.5) * 2.5; q < sb; q += 2.5) {
-                const j0 = at(q, side * (half + 0.22)), j1 = at(q, side * (half + road.sw)), j2 = at(q + 0.06, side * (half + road.sw)), j3 = at(q + 0.06, side * (half + 0.22));
-                for (const pp of [j0, j1, j2, j3]) pp[1] += lift + 0.081;
-                P.quad(j0, j3, j2, j1, [0, 1, 0], JOINT);
-              }
+            if (far) continue;
+            P.quad([ia[0], ia[1] - 0.12, ia[2]], [ib[0], ib[1] - 0.12, ib[2]], ib, ia, [-nx * side, 0, -nz * side], CURB);
+            // bordillo claro
+            const f = 0.22 / road.sw;
+            const ca = at(IN(u0) + (OUT(u0) - IN(u0)) * f, side * (half + 0.22)), cb = at(IN(u1) + (OUT(u1) - IN(u1)) * f, side * (half + 0.22));
+            ca[1] = ia[1] + 0.006; cb[1] = ib[1] + 0.006;
+            P.quad([ia[0], ia[1] + 0.006, ia[2]], [ib[0], ib[1] + 0.006, ib[2]], cb, ca, [0, 1, 0], CURB);
+          }
+          // juntas cada ~2.5 m
+          if (!far && road.sw >= 1.5) {
+            const du = 2.5 / dm;
+            for (let u = Math.ceil(ua / du) * du; u < ub; u += du) {
+              const si = IN(u) + (OUT(u) - IN(u)) * (0.22 / road.sw), so = OUT(u);
+              const j0 = at(si, side * (half + 0.22)), j1 = at(so, side * (half + road.sw)), j2 = at(so + 0.06, side * (half + road.sw)), j3 = at(si + 0.06, side * (half + 0.22));
+              for (const pp of [j0, j1, j2, j3]) pp[1] += lift + 0.081;
+              P.quad(j0, j3, j2, j1, [0, 1, 0], JOINT);
             }
           }
         }
@@ -425,6 +453,24 @@ export class CityRenderer {
     foam.renderOrder = 3;
     this.scene.add(foam);
   }
+}
+
+// Piezas de banqueta de un lado del tramo: [ini, fin] de la orilla interior y de la exterior (m)
+function walkPieces(net, seg, side) {
+  const road = seg.road, half = road.w / 2;
+  const toM = (list) => list.map(([a, b]) => [a * seg.L, b * seg.L]);
+  const inner = toM(freeIntervals(net.blockedIntervals(seg, side * (half + 0.05), 0.05, true)));
+  const outer = toM(freeIntervals(net.blockedIntervals(seg, side * (half + road.sw), 0.05, true)));
+  const out = [];
+  const slack = road.sw * 2.5;
+  for (const I of inner) for (const O of outer) {
+    if (O[1] < I[0] - slack || O[0] > I[1] + slack) continue;
+    const i0 = Math.max(I[0], O[0] - slack), i1 = Math.min(I[1], O[1] + slack);
+    const o0 = Math.max(O[0], I[0] - slack), o1 = Math.min(O[1], I[1] + slack);
+    if (i1 - i0 < 0.3 && o1 - o0 < 0.3) continue;
+    out.push([i0 <= 0.001 ? i0 - (seg.extA || 0) : i0, i1 >= seg.L - 0.001 ? i1 + (seg.extB || 0) : i1, o0 <= 0.001 ? o0 - (seg.extA || 0) : o0, o1 >= seg.L - 0.001 ? o1 + (seg.extB || 0) : o1]);
+  }
+  return out;
 }
 
 function staticMesh(geo, mat) {

@@ -48,10 +48,10 @@ export function renderParts(P, W, obj, parts, detail, signs, far = false, T = nu
         P.box(p.x - p.w / 2, p.y, p.z - p.d / 2, p.x + p.w / 2, p.y + p.h, p.z + p.d / 2, p.c, { bottom: true });
         break;
       case 'gable':
-        P.gableRoof(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.rh, p.c, p.over ?? 0.35);
+        P.gableRoof(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.rh, p.c, p.over ?? 0.35, !far);
         break;
       case 'hip':
-        P.hipRoof(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.rh, p.c, p.over ?? 0.35);
+        P.hipRoof(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.rh, p.c, p.over ?? 0.35, !far);
         break;
       case 'awn': {
         const n = Math.max(2, Math.round(p.w / 0.6));
@@ -202,10 +202,47 @@ function facade(T, P, p, x0, x1, z0, z1, top, seed) {
   // pretil en la azotea
   if (par > 0.2 && !p.noPar) {
     const t = 0.25, c = shade(p.c, 0.92), y = top;
+    // cornisa: moldura saliente que remata la fachada (no en muros cortina)
+    if (!GLASS.has(style)) P.box(x0 - 0.16, y - 0.32, z0 - 0.16, x1 + 0.16, y - 0.04, z1 + 0.16, shade(p.c, 1.08), { top: shade(p.c, 0.95), bottom: true });
     P.box(x0, y, z0, x1, y + 0.7, z0 + t, c);
     P.box(x0, y, z1 - t, x1, y + 0.7, z1, c);
     P.box(x0, y, z0 + t, x0 + t, y + 0.7, z1 - t, c);
     P.box(x1 - t, y, z0 + t, x1, y + 0.7, z1 - t, c);
+    // remate metálico del pretil
+    P.box(x0 - 0.03, y + 0.7, z0 - 0.03, x1 + 0.03, y + 0.76, z1 + 0.03, 0xb9bcbf, { noTop: false });
+  }
+  if (!p.y || p.h > 5) rooftop(P, p, x0, x1, z0, z1, top, seed, GLASS.has(style));
+}
+
+// Equipo en la azotea (caseta de escalera, aire acondicionado, tinacos, antena): azoteas creíbles
+function rooftop(P, p, x0, x1, z0, z1, top, seed, glass) {
+  const w = x1 - x0, d = z1 - z0;
+  if (w < 6 || d < 6) return;
+  let r = seed ^ Math.round(p.x * 13 + p.z * 7 + p.h * 3);
+  const rnd = () => { r = (Math.imul(r, 1103515245) + 12345) >>> 0; return (r >>> 8) / 16777216; };
+  const m = 1.4, gx = (u) => x0 + m + (w - 2 * m) * u, gz = (u) => z0 + m + (d - 2 * m) * u;
+  // caseta de escalera / cuarto de máquinas (atrás, nunca al frente)
+  const cw = Math.min(4.2, w * 0.35), cd = Math.min(3.6, d * 0.3);
+  const cx = gx(rnd() < 0.5 ? 0.15 : 0.85), cz = z0 + m + cd / 2;
+  P.box(cx - cw / 2, top, cz - cd / 2, cx + cw / 2, top + 2.7, cz + cd / 2, shade(p.c, glass ? 0.8 : 0.95), { top: 0x8d9093 });
+  P.box(cx - cw / 2 - 0.1, top + 2.7, cz - cd / 2 - 0.1, cx + cw / 2 + 0.1, top + 2.85, cz + cd / 2 + 0.1, 0x9ea2a5);
+  // unidades de aire acondicionado
+  const nAC = 1 + Math.floor(rnd() * (w * d > 400 ? 4 : 2));
+  for (let i = 0; i < nAC; i++) {
+    const ax = gx(0.2 + rnd() * 0.6), az = gz(0.35 + rnd() * 0.55);
+    if (Math.abs(ax - cx) < cw / 2 + 1 && Math.abs(az - cz) < cd / 2 + 1) continue;
+    P.box(ax - 0.7, top, az - 0.55, ax + 0.7, top + 1.0, az + 0.55, 0xc9cccf, { top: 0x6f7477 });
+    P.cylinder(ax, top + 1.0, az, 0.36, 0.36, 0.04, 8, 0x3a3f43);
+  }
+  // tinacos (barrios con agua de techo) o antena en torres
+  if (!glass && rnd() < 0.7) {
+    const tx = gx(rnd() < 0.5 ? 0.9 : 0.1), tz = gz(0.6 + rnd() * 0.3);
+    P.box(tx - 0.8, top, tz - 0.8, tx + 0.8, top + 0.35, tz + 0.8, 0x9e9e9e);
+    P.cylinder(tx, top + 0.35, tz, 0.6, 0.6, 1.3, 8, 0x222222, { top: 0x333333 });
+  }
+  if (top > 30) {
+    P.cylinder(cx, top + 2.85, cz, 0.08, 0.04, 6, 5, 0xb0b4b8);
+    P.box(cx - 0.12, top + 8.7, cz - 0.12, cx + 0.12, top + 8.95, cz + 0.12, 0xe53935);
   }
 }
 
@@ -252,6 +289,8 @@ function balconies(T, P, p, fc, ax, az, yA, yB, fh, all, seed) {
         const ww = Math.min(1.6, cw * 0.55);
         T.panel(x, z, y + 0.85, y + Math.min(2.35, ff - 0.45), ww, fc.ry, atlasUV(cell), 0xffffff, 0.04);
         P.boxR(x + fx * 0.06, y + 0.8, z + fz * 0.06, ww + 0.2, 0.08, 0.14, fc.ry, 0xeeeeee);
+        // minisplit bajo algunas ventanas
+        if ((seed + f * 7 + i * 3) % 5 === 0) P.boxR(x + ax * (ww / 2 + 0.55) + fx * 0.2, y + 1.6, z + az * (ww / 2 + 0.55) + fz * 0.2, 0.85, 0.32, 0.3, fc.ry, 0xe9ecee);
       }
     }
   }

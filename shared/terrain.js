@@ -185,15 +185,16 @@ export function baseHeight(x, z) {
     for (const r of RIDGES) {
       if (!inBox(r.bb, x, z)) continue;
       const dd = distToPolyline(r.pts, x, z);
-      if (dd < r.w) h += r.h * Math.pow(1 - dd / r.w, 1.7) * (0.75 + 0.5 * fbm(x * 0.012, z * 0.012, 11, 4) + 0.25);
+      // perfil de campana (cresta redondeada, sin pico) con ondulación suave a lo largo de la sierra
+      if (dd < r.w) { const t = 1 - dd / r.w; h += r.h * t * t * (3 - 2 * t) * (0.8 + 0.45 * fbm(x * 0.008, z * 0.008, 11, 2)); }
     }
     for (const hl of HILLS) {
       const dd = Math.hypot(x - hl.at[0], z - hl.at[1]);
-      if (dd < hl.r) h += hl.h * Math.pow(1 - dd / hl.r, 2) * (3 - 2 * (1 - dd / hl.r)) * 0.5 + hl.h * 0.5 * Math.pow(1 - dd / hl.r, 2);
+      if (dd < hl.r) { const t = 1 - dd / hl.r; h += hl.h * t * t * (3 - 2 * t); }   // loma redonda (sin punta)
     }
     for (const is of ISLANDS) {
       const dd = Math.hypot(x - is.peakAt[0], z - is.peakAt[1]);
-      if (dd < 90) h += is.peak * Math.pow(Math.max(0, 1 - dd / 80), 1.6) * smoothstep(0, 12, d);
+      if (dd < 80) { const t = 1 - dd / 80; h += is.peak * t * t * (3 - 2 * t) * smoothstep(0, 12, d); }
     }
   }
   // lago de la presa
@@ -231,6 +232,31 @@ export class Heightmap {
     for (let j = 0; j < this.nz; j++) {
       const z = this.z0 + j * this.res;
       for (let i = 0; i < this.nx; i++) this.h[j * this.nx + i] = baseHeight(this.x0 + i * this.res, z);
+    }
+    this.smoothInland(3);
+  }
+
+  // Suaviza el relieve tierra adentro (quita picos y escalones de 4 m). No toca la costa, el lago,
+  // el río, las calzadas ni los muelles: ahí la altura tiene que ser exacta.
+  smoothInland(passes) {
+    const { nx, nz } = this;
+    const fixed = new Uint8Array(nx * nz);
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const x = this.x0 + i * this.res, z = this.z0 + j * this.res;
+      const k = j * nx + i;
+      if (this.h[k] < 2.5 || lakeDist(x, z) > -30 || landDist(x, z) < 12) { fixed[k] = 1; continue; }
+      if (inBox(RIVER_BB, x, z) && distToPolyline(RIVER.pts, x, z) < RIVER.width / 2 + 20) { fixed[k] = 1; continue; }
+      for (const p of PIERS) if (inBox(p.bb, x, z)) { fixed[k] = 1; break; }
+    }
+    const tmp = new Float32Array(nx * nz);
+    for (let pass = 0; pass < passes; pass++) {
+      tmp.set(this.h);
+      for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
+        const k = j * nx + i;
+        if (fixed[k]) continue;
+        const s = 4 * tmp[k] + 2 * (tmp[k - 1] + tmp[k + 1] + tmp[k - nx] + tmp[k + nx]) + tmp[k - nx - 1] + tmp[k - nx + 1] + tmp[k + nx - 1] + tmp[k + nx + 1];
+        this.h[k] = s / 16;
+      }
     }
   }
 
@@ -275,6 +301,39 @@ export class Heightmap {
         if (d <= core) { if (!(keep && this.mask[k])) { this.h[k] = target; this.mask[k] = 1; } }
         else if (!this.mask[k]) this.h[k] = lerp(this.h[k], target, smoothstep(R, core, d));
       }
+    }
+  }
+
+  // Aplana el corredor de una calle completa siguiendo su perfil (pts[i] -> hs[i]).
+  // Cada celda toma la altura del punto MÁS CERCANO de la calle (una sola vez, sin mezclas entre
+  // tramos). Fuera del núcleo, el talud se ensancha según el desnivel (máx. ~1:2) para que las
+  // laderas lleguen a la calle de forma natural, sin paredes ni picos.
+  flattenRoad(pts, hs, closed, core, blendMin, keep = true) {
+    const n = closed ? pts.length : pts.length - 1;
+    const BMAX = 34, R = core + BMAX;
+    const best = new Map(); // celda -> [distancia, altura objetivo]
+    for (let s = 0; s < n; s++) {
+      const a = pts[s], b = pts[(s + 1) % pts.length], ah = hs[s], bh = hs[(s + 1) % pts.length];
+      const dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+      const i0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - R - this.x0) / this.res)), i1 = Math.min(this.nx - 1, Math.ceil((Math.max(a[0], b[0]) + R - this.x0) / this.res));
+      const j0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - R - this.z0) / this.res)), j1 = Math.min(this.nz - 1, Math.ceil((Math.max(a[1], b[1]) + R - this.z0) / this.res));
+      for (let j = j0; j <= j1; j++) {
+        const z = this.z0 + j * this.res;
+        for (let i = i0; i <= i1; i++) {
+          const x = this.x0 + i * this.res;
+          const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / L2, 0, 1);
+          const d = Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t));
+          if (d >= R) continue;
+          const k = j * this.nx + i, o = best.get(k);
+          if (!o || d < o[0]) best.set(k, [d, ah + (bh - ah) * t]);
+        }
+      }
+    }
+    for (const [k, [d, target]] of best) {
+      if (d <= core) { if (!(keep && this.mask[k])) { this.h[k] = target; this.mask[k] = 1; } continue; }
+      if (this.mask[k]) continue;
+      const B = clamp(Math.abs(this.h[k] - target) * 2.2, blendMin, BMAX);
+      if (d < core + B) this.h[k] = lerp(this.h[k], target, smoothstep(core + B, core, d));
     }
   }
 
