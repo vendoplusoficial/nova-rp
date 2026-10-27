@@ -159,7 +159,11 @@ export const SITE_DEFS = [
   { id: 'bomberos', kind: 'bomberos', name: 'Estación de Bomberos', at: P(940, 410), hx: 16, hz: 12 },
   { id: 'jobcenter', kind: 'repartos', name: 'Centro de Trabajos', at: P(960, 615), hx: 21, hz: 12 },
   { id: 'mall', kind: 'super', name: 'Plaza Comercial Nova', at: P(865, 515), hx: 34, hz: 24 },
-  { id: 'concesionario', kind: 'concesionario', name: 'Autos Nova', at: P(790, 540), hx: 22, hz: 16 },
+  // concesionarios por gama: económico en el barrio popular (Av. del Sol), medio en la zona
+  // comercial junto a la plaza comercial (Av. Reforma) y de lujo en el Malecón Costa Azul
+  { id: 'concesionario', kind: 'concesionario', tier: 'medio', name: 'Autos Nova', at: P(790, 540), hx: 24, hz: 18 },
+  { id: 'conc_economico', kind: 'concesionario', tier: 'economico', name: 'Seminuevos El Ahorro', at: P(600, 640), hx: 22, hz: 16 },
+  { id: 'conc_lujo', kind: 'concesionario', tier: 'lujo', name: 'Prestige Motors', at: P(1240, 470), hx: 24, hz: 18 },
   { id: 'taller', kind: 'taller', name: 'Taller Mecánico El Pistón', at: P(905, 600), hx: 14, hz: 11 },
   { id: 'gunshop', kind: 'armeria', name: 'Armería Nova', at: P(1100, 585), hx: 30, hz: 28 },
   { id: 'gas1', kind: 'gasolinera', name: 'Gasolinera Nova', at: P(1060, 500), hx: 18, hz: 12, brand: 0 },

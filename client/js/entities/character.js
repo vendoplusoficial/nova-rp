@@ -161,7 +161,8 @@ export class Character {
         break;
       case ANIM.RIDE: {
         hipsY = 0.06;
-        const p = st.pedal || 0;
+        // fase negativa: el pie sube por atrás y empuja por delante (pedaleo hacia adelante)
+        const p = -(st.pedal || 0);
         T[B.thL][0] = -1.2 + Math.sin(p) * 0.4; T[B.shL][0] = 1.3 + Math.cos(p) * 0.38;
         T[B.thR][0] = -1.2 + Math.sin(p + Math.PI) * 0.4; T[B.shR][0] = 1.3 + Math.cos(p + Math.PI) * 0.38;
         T[B.spine][0] = 0.4; T[B.head][0] = -0.3;

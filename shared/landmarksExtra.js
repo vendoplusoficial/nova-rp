@@ -36,21 +36,16 @@ function flag(P, x, z, y, w, h) {
 function colonnade(P, x0, x1, z, n, h, c, r = 0.32) {
   for (let i = 0; i < n; i++) P.push(cyl(x0 + ((x1 - x0) * i) / (n - 1), z, 0, r, r * 0.9, h, 8, c, { col: 1 }));
 }
-// Cajones de estacionamiento pintados
-function parking(P, x, z, w, d, rot = 0, cars = 0, rng = null) {
+// Cajones de estacionamiento pintados (vacíos: los autos solo se compran en los concesionarios)
+function parking(P, x, z, w, d, rot = 0) {
   P.push(decal(x, z, w, d, 0x4f5459, { r: rot }));
   const n = Math.floor(w / 2.8);
-  const colors = [0xc0392b, 0x2c3e50, 0xecf0f1, 0x7f8c8d, 0x2980b9, 0xf1c40f, 0x16a085, 0x1b1b1b];
+  const c = Math.cos(rot), s = Math.sin(rot);
   for (let i = 0; i <= n; i++) {
     const lx = -w / 2 + (w / n) * i;
     for (const sz of [-1, 1]) if (d > 10 || sz < 0) {
       const lz = d > 10 ? sz * (d / 2 - 2.6) : 0;
-      const c = Math.cos(rot), s = Math.sin(rot);
       P.push(decal(x + lx * c + lz * s, z - lx * s + lz * c, 0.14, 5, 0xffffff, { y: 0.01, r: rot, det: 1 }));
-      if (i < n && cars && rng && rng.chance(cars)) {
-        const cx = lx + w / n / 2;
-        P.push(prop('car', x + cx * c + lz * s, z - cx * s + lz * c, { r: rot + (sz > 0 ? Math.PI : 0), c: colors[rng.int(0, colors.length - 1)], col: 1 }));
-      }
     }
   }
 }
@@ -163,9 +158,59 @@ export const EXTRA_BUILDERS = {
   },
 
   // ---------------- comercio y servicios ----------------
+  // Concesionario por gama (site.tier): 'economico' (seminuevos), 'medio' (agencia) o 'lujo'.
+  // Sala de exhibición al fondo, autos en exhibición de frente a la calle y acceso al centro.
   concesionario(site, rng = new Rng(7)) {
-    const res = B.concesionario(rng, site.hx * 2, site.hz * 2, site.name);
-    return { parts: res.parts, points: { door: [res.door[0], site.hz + 1.5] } };
+    const P = [];
+    const { hx, hz } = site;
+    const tier = site.tier || 'medio';
+    const T = {
+      economico: { floor: 0x7d7f80, wall: 0xf1e3c4, band: 0xf9a825, signBg: '#f9a825', signFg: '#3e2723', glass: null, cars: ['carCompact', 'carSedan', 'carPickup', 'carCompact', 'carSedan'], colors: [0xb03a2e, 0x6c7a89, 0xd6c9a8, 0x2e4053, 0x7d6608, 0x5d6d7e] },
+      medio: { floor: 0x9a9da0, wall: 0xeceff1, band: 0x0d47a1, signBg: '#0d47a1', signFg: '#ffffff', glass: 'glassBlue', cars: ['carSedan', 'carSUV', 'carCompact', 'carPickup', 'carSedan', 'carSUV'], colors: [0xc0392b, 0xecf0f1, 0x2980b9, 0x1b1b1b, 0x7f8c8d, 0x16a085] },
+      lujo: { floor: 0xdedbd5, wall: 0xeeeae2, band: 0xc9a227, signBg: '#111111', signFg: '#e2c25a', glass: 'glassDark', cars: ['carLux', 'carSport', 'carSUV', 'carSport', 'carLux'], colors: [0x111111, 0xf1f1f1, 0xb71c1c, 0x1a237e, 0xc9a227, 0x546e7a] },
+    }[tier];
+    P.push(decal(0, 0, hx * 2, hz * 2, T.floor));
+    // sala de exhibición
+    const bw = hx * 2 - 6, bd = Math.min(14, hz), bz = -hz + bd / 2 + 2, bh = tier === 'lujo' ? 8 : tier === 'medio' ? 7 : 4.2;
+    if (T.glass) {
+      P.push(box(0, bz, bw, bd, bh, T.wall, { f: T.glass, fh: bh, gf: 'lobby', gfH: bh - 1.2, gfc: T.band, par: 0.6 }));
+      P.push(deco(0, bz, bw + 0.3, bd + 0.3, 1.0, T.band, { y: bh - 1.0, det: 0 }));
+      P.push(slab(0, bz + bd / 2 + 2.5, bh - 1.6, bw * 0.45, 5, 0.35, tier === 'lujo' ? 0x1c1c1c : 0xf5f5f5));         // marquesina
+      for (const sx of [-1, 1]) P.push(cyl(sx * bw * 0.2, bz + bd / 2 + 4.6, 0, 0.2, 0.2, bh - 1.6, 8, tier === 'lujo' ? 0xc9a227 : 0xcfd8dc, { col: 1 }));
+    } else {
+      // seminuevos: oficina sencilla, toldo y banderines
+      P.push(box(-bw / 4, bz, bw / 2, bd - 4, bh, T.wall));
+      P.push(door(-bw / 4, bz + (bd - 4) / 2 + 0.03, 1.2, 2.2, 0x37474f, 0, { cell: 'doorGlass' }));
+      P.push(panel('winLarge', -bw / 4 + 3.2, bz + (bd - 4) / 2 + 0.04, 0.9, 3.4, 1.8, { fc: 0x2c3e50 }));
+      P.push(panel('winLarge', -bw / 4 - 3.2, bz + (bd - 4) / 2 + 0.04, 0.9, 3.4, 1.8, { fc: 0x2c3e50 }));
+      P.push({ k: 'awn', x: -bw / 4, z: bz + (bd - 4) / 2 + 0.9, y: 3.2, w: bw / 2 - 1, d: 1.8, c: 0xf9a825, c2: 0xffffff });
+      for (let i = 0; i < 4; i++) P.push({ k: 'flags', x: 0, z: -hz + 6 + i * (hz * 2 - 10) / 3, y: 4.6, w: hx * 2 - 4, colors: [0xe53935, 0xfdd835, 0x1e88e5, 0x43a047], det: 1 });
+      for (const sx of [-1, 1]) P.push(cyl(sx * (hx - 1.2), -hz + 4, 0, 0.08, 0.06, 5, 5, 0xb0b0b0));
+    }
+    P.push(sign(0, bz + bd / 2 + 0.15, bh - 0.55, Math.min(bw * 0.6, 16), 1.1, site.name.toUpperCase(), T.signBg, T.signFg));
+    // autos en exhibición (dos filas en diagonal hacia la calle), con tarima en lujo
+    const n = Math.max(3, Math.floor((hx * 2 - 6) / 5.4));
+    for (let row = 0; row < 2; row++) {
+      const z = bz + bd / 2 + 7 + row * 7.5;
+      if (z > hz - 3) break;
+      for (let i = 0; i < n; i++) {
+        const x = -hx + 3.5 + (i + 0.5) * ((hx * 2 - 7) / n);
+        if (row === 0 && Math.abs(x) < 3.5) continue;                       // pasillo a la entrada
+        const type = T.cars[(i + row * 2) % T.cars.length], c = T.colors[(i * 3 + row) % T.colors.length];
+        if (tier === 'lujo') P.push(cyl(x, z, 0, 2.9, 2.9, 0.18, 12, 0xf5f5f5));
+        P.push(prop(type, x, z, { y: tier === 'lujo' ? 0.18 : 0, r: row ? -0.5 : 0.5, c, col: 1 }));
+        if (tier !== 'lujo') P.push(deco(x + 1.7, z + 1.6, 0.6, 0.04, 0.4, 0xffffff, { y: 1.0 }));          // letrero de precio
+      }
+    }
+    // cerca y acceso
+    perimeter(P, hx - 0.3, hz - 0.3, tier === 'lujo' ? 1.0 : 1.4, tier === 'lujo' ? 0x2b2d30 : 0x9e9e9e, 9, tier === 'lujo' ? 'wall' : 'rail');
+    if (tier === 'lujo') {
+      for (const sx of [-1, 1]) { P.push(prop('palm', sx * (hx - 2.5), hz - 2.5, { col: 1, sc: 1.2 })); P.push(prop('palm', sx * (hx - 2.5), -hz + 3, { col: 1, sc: 1.1 })); }
+      for (let i = 0; i < 4; i++) P.push(prop('lampgarden', -hx + 3 + i * ((hx * 2 - 6) / 3), hz - 1.2));
+    } else {
+      for (const sx of [-1, 1]) P.push(prop('lamp', sx * (hx - 1.5), hz - 1.5, { r: Math.PI }));
+    }
+    return { parts: P, points: { door: [0, hz + 1.5] } };
   },
   taller(site, rng = new Rng(8)) {
     const res = B.taller(rng, site.hx * 2, site.hz * 2, site.name);
@@ -382,8 +427,8 @@ export const EXTRA_BUILDERS = {
       P.push(cyl(ex - 14 + i * 12, az1 + 14, 7, 4.3, 3.2, 0.9, 12, 0xcfd8dc));
     }
     // estacionamiento y vialidad de acceso al frente
-    parking(P, -hx * 0.45, hz - 12, 90, 14, 0, 0.45, new Rng(17));
-    parking(P, hx * 0.45, hz - 12, 90, 14, 0, 0.35, new Rng(29));
+    parking(P, -hx * 0.45, hz - 12, 90, 14, 0);
+    parking(P, hx * 0.45, hz - 12, 90, 14, 0);
     P.push(decal(0, hz - 14, 26, 28, ASPH, { y: 0.006 }));
     P.push(decal(0, tcz + td / 2 + 8, tw * 0.9, 9, ASPH, { y: 0.007 }));
     // jardín frente a la terminal, manga de viento y cerca
@@ -502,7 +547,6 @@ export const EXTRA_BUILDERS = {
     P.push(door(0, hz - 5.95, 2.6, 2.6, 0x263238, 0, { cell: 'doorGlass' }));
     P.push({ k: 'pool', x: 16, z: hz - 12, w: 9, d: 6, c: 0x29b6f6 });
     for (let i = 0; i < 3; i++) P.push(prop('lounger', 13 + i * 2.6, hz - 7.6, { det: 1, r: Math.PI }));
-    for (let i = 0; i < 4; i++) P.push(prop('car', -hx + 6 + i * 4, hz - 3, { col: 1, r: 0, c: [0x1b1b1b, 0xecf0f1, 0x2c3e50, 0x7f8c8d][i] }));
     treeRow(P, -hx + 2, hz - 1.5, hx - 2, hz - 1.5, 9, 'palm', 1.2);
     for (const [x, z] of [[-hx + 4, -4], [hx - 5, 2], [-14, 6], [18, -2], [-hx + 6, -hz + 3], [hx - 6, -hz + 3]]) P.push(prop('pine', x, z, { col: 1, sc: 1.2 }));
     return { parts: P, points: { door: [0, hz + 2] } };
@@ -646,7 +690,7 @@ export const EXTRA_BUILDERS = {
   estacionamiento(site, rng = new Rng(4)) {
     const P = [];
     const { hx, hz } = site;
-    parking(P, 0, 0, hx * 2, hz * 2, 0, 0.45, rng);
+    parking(P, 0, 0, hx * 2, hz * 2, 0);
     for (const s of [-1, 1]) P.push(prop('lamp', s * (hx - 1), 0));
     return { parts: P, points: {} };
   },

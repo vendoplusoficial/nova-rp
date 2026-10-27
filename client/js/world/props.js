@@ -2,6 +2,7 @@
 // Todos miran hacia +Z y su base está en y=0. Varios tienen VARIANTES (v = 0..2) para que no se repitan.
 
 import { makeProto, shade, mixHex, glow } from './geometry.js';
+import { carModel } from './carModels.js';
 
 const cache = new Map();
 
@@ -269,12 +270,19 @@ const B = {
   },
   carts: (b) => { for (let i = 0; i < 4; i++) b.boxR(i * 0.3 - 0.45, 0.55, 0, 0.55, 0.5, 0.9, 0, 0x9e9e9e); },
   // ---------- vehículos ----------
-  car: (b, c = 0xc0392b, v = 0) => car(b, c, v),
+  car: (b, c = 0xc0392b, v = 0) => carModel(b, ['sedan', 'compact', 'suv'][v % 3], c),
+  carCompact: (b, c = 0xc0392b) => carModel(b, 'compact', c),
+  carSedan: (b, c = 0x2c3e50) => carModel(b, 'sedan', c),
+  carSUV: (b, c = 0x7f8c8d) => carModel(b, 'suv', c),
+  carPickup: (b, c = 0xecf0f1) => carModel(b, 'pickup', c),
+  carSport: (b, c = 0xd32f2f) => carModel(b, 'sport', c),
+  carLux: (b, c = 0x1b1b1b) => carModel(b, 'lux', c),
   policecar: (b) => {
-    car(b, 0xf5f5f5, 0);
-    b.boxR(0, 0.72, 0, 1.9, 0.32, 1.7, 0, 0x16326b);
-    b.boxR(-0.3, 1.5, -0.1, 0.55, 0.13, 0.28, 0, 0xd32f2f);
-    b.boxR(0.3, 1.5, -0.1, 0.55, 0.13, 0.28, 0, 0x1e88e5);
+    carModel(b, 'sedan', 0xf5f5f5);
+    for (const s of [-1, 1]) b.boxR(s * 0.915, 0.62, 0.05, 0.02, 0.5, 1.9, 0, 0x16326b);     // puertas azules
+    b.boxR(0, 1.47, -0.3, 1.2, 0.08, 0.3, 0, 0x2b2b2b);
+    b.boxR(-0.3, 1.56, -0.3, 0.55, 0.12, 0.26, 0, glow(0xd32f2f, 1.8));
+    b.boxR(0.3, 1.56, -0.3, 0.55, 0.12, 0.26, 0, glow(0x1e88e5, 1.8));
   },
   ambulance: (b) => {
     b.boxR(0, 1.45, -0.4, 2.1, 2.3, 4.0, 0, 0xfafafa);
@@ -433,55 +441,9 @@ function wheels(b, x, zs, r) {
   }
 }
 
-// Autos: sedán (0), hatchback/SUV (1) y pick-up (2)
-function car(b, c, v) {
-  const dark = shade(c, 0.78), glass = 0x26323b;
-  if (v === 2) { // pick-up
-    b.boxR(0, 0.75, 0, 1.9, 0.6, 5.1, 0, c);
-    hx(b, [[-0.9, 1.05, -0.3], [0.9, 1.05, -0.3], [0.9, 1.05, 1.1], [-0.9, 1.05, 1.1], [-0.84, 1.75, -0.2], [0.84, 1.75, -0.2], [0.82, 1.7, 0.7], [-0.82, 1.7, 0.7]], c);
-    b.boxR(0, 1.42, 0.86, 1.56, 0.5, 0.02, 0.55, glass);
-    b.boxR(0, 1.42, -0.32, 1.56, 0.45, 0.02, 0, glass);
-    for (const s of [-1, 1]) b.boxR(s * 0.91, 1.4, 0.35, 0.02, 0.42, 0.95, 0, glass);
-    b.boxR(0, 1.2, -1.75, 1.9, 0.35, 0.06, 0, dark);
-    for (const s of [-1, 1]) b.boxR(s * 0.92, 1.2, -1.75 + 0.5, 0.06, 0.35, 2.5, 0, dark);
-    b.boxR(0, 1.06, -1.4, 1.76, 0.02, 2.4, 0, 0x2b2b2b);
-    b.boxR(0, 0.6, 2.56, 1.8, 0.25, 0.06, 0, 0x9aa0a6);
-    lights(b, 2.55, -2.56, 0.85);
-    wheels(b, 0.88, [-1.65, 1.65], 0.4);
-    return;
-  }
-  const L = v === 1 ? 4.1 : 4.5, H0 = v === 1 ? 0.95 : 0.8;
-  // carrocería baja con cofre ligeramente inclinado
-  hx(b, [[-0.92, 0.32, -L / 2], [0.92, 0.32, -L / 2], [0.92, 0.32, L / 2], [-0.92, 0.32, L / 2], [-0.9, H0, -L / 2 + 0.1], [0.9, H0, -L / 2 + 0.1], [0.88, H0 - 0.08, L / 2 - 0.1], [-0.88, H0 - 0.08, L / 2 - 0.1]], c);
-  // cabina con parabrisas inclinado
-  const z0 = v === 1 ? -L / 2 + 0.25 : -1.25, z1 = v === 1 ? 0.95 : 0.85, top = v === 1 ? 1.7 : 1.42;
-  hx(b, [[-0.86, H0, z0], [0.86, H0, z0], [0.86, H0 - 0.04, z1 + 0.35], [-0.86, H0 - 0.04, z1 + 0.35], [-0.76, top, z0 + (v === 1 ? 0.1 : 0.45)], [0.76, top, z0 + (v === 1 ? 0.1 : 0.45)], [0.76, top, z1 - 0.35], [-0.76, top, z1 - 0.35]], c);
-  // vidrios (ligeramente por fuera de la cabina)
-  const wy = (H0 + top) / 2 + 0.03;
-  b.quad([-0.8, H0 + 0.05, z1 + 0.32], [0.8, H0 + 0.05, z1 + 0.32], [0.72, top - 0.04, z1 - 0.32], [-0.72, top - 0.04, z1 - 0.32], [0, 0.6, 0.8], glass);
-  b.quad([0.8, H0 + 0.05, z0 + 0.02], [-0.8, H0 + 0.05, z0 + 0.02], [-0.72, top - 0.04, z0 + (v === 1 ? 0.12 : 0.43)], [0.72, top - 0.04, z0 + (v === 1 ? 0.12 : 0.43)], [0, 0.6, -0.8], glass);
-  for (const s of [-1, 1]) {
-    const x = s * 0.875;
-    b.quad([x, H0 + 0.08, z0 + 0.25], [x, H0 + 0.08, z1 + 0.2], [s * 0.78, top - 0.06, z1 - 0.38], [s * 0.78, top - 0.06, z0 + (v === 1 ? 0.2 : 0.5)], [s, 0.15, 0], glass);
-  }
-  void wy;
-  // defensas y faros
-  b.boxR(0, 0.42, L / 2 + 0.02, 1.84, 0.22, 0.08, 0, 0x2b2b2b);
-  b.boxR(0, 0.42, -L / 2 - 0.02, 1.84, 0.22, 0.08, 0, 0x2b2b2b);
-  lights(b, L / 2 + 0.02, -L / 2 - 0.02, H0 - 0.15);
-  // manijas y espejos
-  for (const s of [-1, 1]) { b.boxR(s * 0.95, H0 + 0.12, z1 + 0.2, 0.12, 0.1, 0.18, 0, dark); }
-  wheels(b, 0.86, [-L / 2 + 0.8, L / 2 - 0.85], 0.34);
-}
-function lights(b, zf, zb, y) {
-  for (const s of [-1, 1]) {
-    b.boxR(s * 0.62, y, zf + 0.03, 0.42, 0.14, 0.04, 0, 0xfaf6e6);
-    b.boxR(s * 0.66, y + 0.05, zb - 0.03, 0.34, 0.16, 0.04, 0, 0xc62828);
-  }
-}
 
 // Objetos que se omiten en mosaicos lejanos (pequeños)
-export const FAR_SKIP = new Set(['stopSign', 'hydrant', 'hayBale', 'lamp', 'lampColonial', 'lampDouble', 'lampWood', 'lampgarden', 'busstop', 'car', 'policecar', 'mailbox', 'bin', 'bench', 'scooter', 'bush', 'hedgeBall', 'bougainvillea', 'planter', 'bamboo', 'crates', 'cooler', 'laundry', 'grill', 'table', 'tableUmbrella', 'lounger', 'hoop', 'telescope', 'dummy', 'carts', 'towel', 'buoy', 'trafficLight']);
+export const FAR_SKIP = new Set(['stopSign', 'hydrant', 'hayBale', 'lamp', 'lampColonial', 'lampDouble', 'lampWood', 'lampgarden', 'busstop', 'car', 'carCompact', 'carSedan', 'carSUV', 'carPickup', 'carSport', 'carLux', 'policecar', 'mailbox', 'bin', 'bench', 'scooter', 'bush', 'hedgeBall', 'bougainvillea', 'planter', 'bamboo', 'crates', 'cooler', 'laundry', 'grill', 'table', 'tableUmbrella', 'lounger', 'hoop', 'telescope', 'dummy', 'carts', 'towel', 'buoy', 'trafficLight']);
 // Objetos con versión simplificada lejos
 const HAS_LOD = new Set(['round', 'oak', 'jacaranda', 'willow', 'pine', 'palm']);
 const VARIANTS = { round: 3, oak: 3, jacaranda: 3, willow: 1, pine: 3, palm: 3, bush: 3, rock: 3, car: 3 };

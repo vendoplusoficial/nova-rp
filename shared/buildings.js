@@ -188,7 +188,6 @@ export function casaMedia(rng, w, d) {
   // árbol o palmera del jardín
   P.push(prop(rng.pick(['round', 'palm', 'jacaranda', 'round', 'palm']), bx - gSide * (bw / 2 - 1.5), (fz + d / 2) / 2 + 0.6, { col: 1, sc: rng.float(0.85, 1.1) }));
   P.push(prop('mailbox', dx + 1.0, d / 2 - 0.6, { det: 1 }));
-  if (rng.chance(0.55)) P.push(prop('car', gx, d / 2 - 3.0, { r: 0, c: rng.pick([0xc0392b, 0x2c3e50, 0xecf0f1, 0x7f8c8d, 0x2980b9, 0x16a085, 0x1b1b1b, 0xb0b5b9]), col: 1 }));
   // patio trasero con barda, árboles y asador
   const backD = Math.max(0.5, bz - bd / 2 + d / 2);
   P.push(decal(0, -d / 2 + backD / 2, w, backD, 0x6ea556, { det: 1 }));
@@ -595,30 +594,8 @@ export function taller(rng, w, d, name) {
   P.push(decal(0, (fz + d / 2) / 2, w * 0.9, 0.12, 0xfdd835, { y: 0.01, det: 1 }));
   for (let i = 0; i < 3; i++) P.push({ k: 'cyl', x: bw / 2 - 0.7, z: fz + 0.6 + i * 0.05, y: i * 0.32, r: 0.42, r2: 0.42, h: 0.3, seg: 10, c: 0x1b1b1b, det: 1 });
   P.push(prop('crates', -bw / 2 + 0.8, fz + 0.8, { det: 1 }));
-  P.push(prop('car', rng.chance(0.5) ? -bw / 4 : bw / 4, (fz + d / 2) / 2 + 0.3, { r: rng.chance(0.5) ? 0 : Math.PI, c: rng.pick([0x7f8c8d, 0xc0392b, 0x2c3e50, 0xf39c12]), col: 1 }));
   P.push({ k: 'slab', x: 0, z: bz, y: h, w: bw + 0.2, d: bd + 0.2, h: 0.25, c: 0x8d8d8d });
   return { parts: P, door: [0, fz], drive: [-bw / 4, bw / 4], top: h };
-}
-
-// Agencia de autos: sala de exhibición de vidrio, autos en el lote, banderines
-export function concesionario(rng, w, d, name) {
-  const P = [];
-  const fz = d / 2 - 9;
-  const bw = w - 4, bd = Math.min(d - 10, 12);
-  const bz = fz - bd / 2;
-  const brand = rng.pick([['#0d47a1', 0x0d47a1], ['#b71c1c', 0xb71c1c], ['#263238', 0x263238]]);
-  P.push(box(0, bz, bw, bd, 6.5, 0xeceff1, { f: 'glassBlue', fh: 6.5, gf: 'lobby', gfH: 4.8, gfc: 0x37474f }));
-  P.push(deco(0, bz, bw + 0.2, bd + 0.2, 0.9, brand[1], { y: 6.2, det: 0 }));
-  P.push(sign(0, fz + 0.14, 5.0, Math.min(bw * 0.7, 12), 1.1, name, brand[0]));
-  P.push(decal(0, (fz + d / 2) / 2, w, d / 2 - fz, 0x55595e));
-  const colors = [0xc0392b, 0xecf0f1, 0x1b1b1b, 0x2980b9, 0xf1c40f, 0x7f8c8d, 0x16a085];
-  const nCar = Math.max(2, Math.floor((w - 4) / 4.2));
-  for (let i = 0; i < nCar; i++) P.push(prop('car', -w / 2 + 2.6 + i * ((w - 5.2) / Math.max(1, nCar - 1)), fz + 4.2, { r: 0.35, c: colors[(i + rng.int(0, 6)) % colors.length], col: 1 }));
-  for (const s of [-1, 1]) {
-    P.push({ k: 'cyl', x: s * (w / 2 - 0.8), z: d / 2 - 0.8, y: 0, r: 0.08, r2: 0.06, h: 6, seg: 5, c: 0xcfd8dc, col: 0 });
-    P.push(deco(s * (w / 2 - 0.8) - s * 0.5, d / 2 - 0.8, 1.0, 0.04, 2.2, brand[1], { y: 3.6, det: 1 }));
-  }
-  return { parts: P, door: [0, fz], drive: [0], top: 7 };
 }
 
 // Fábrica: nave alta con techo de diente de sierra, chimenea, oficinas al frente y patio de maniobras

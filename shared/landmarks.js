@@ -394,8 +394,6 @@ export const SITE_BUILDERS = {
     P.push({ k: 'slab', x: 0, z: 8, y: 3.6, w: 14, d: 4, h: 0.3, c: 0x2e7d32 });
     P.push(door(0, 6.06, 4.4, 2.8, 0x1b1b1b, 0, { cell: 'doorGlass' }));
     P.push(sign(0, 6.12, 5.6, 16, 1.6, site.name.toUpperCase(), '#2e7d32'));
-    const colors = [0xc0392b, 0x2c3e50, 0xecf0f1, 0x7f8c8d, 0x2980b9, 0xf1c40f, 0x16a085];
-    for (let i = 0; i < 8; i++) if (i % 3 !== 1) P.push(prop('car', -16 + i * 4.5, hz - 7, { col: 1, r: 0, c: colors[i % colors.length] }));
     P.push(prop('carts', 14, 10, { det: 1 }));
     return { parts: P, points: { door: [0, 9] } };
   },

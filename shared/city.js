@@ -36,7 +36,7 @@ export function getCity(seed = CITY_SEED) {
 // Colisiones de objetos sueltos: semiancho, semifondo, alto
 export const PROP_COL = {
   round: [0.3, 0.3, 5], oak: [0.35, 0.35, 5], laurel: [0.3, 0.3, 5], pine: [0.3, 0.3, 6], jacaranda: [0.3, 0.3, 5], palm: [0.25, 0.25, 7], willow: [0.35, 0.35, 5],
-  car: [0.95, 2.1, 1.5], policecar: [0.95, 2.2, 1.6], ambulance: [1.1, 2.8, 2.6], van: [1.0, 2.6, 2.3], truck: [1.3, 3.6, 3.2], truckArmy: [1.3, 3.6, 3.2], bus: [1.3, 5.6, 3.2], firetruck: [1.3, 4.0, 3.0],
+  car: [0.95, 2.2, 1.5], carCompact: [0.9, 1.95, 1.5], carSedan: [0.95, 2.3, 1.45], carSUV: [1.0, 2.4, 1.9], carPickup: [1.0, 2.65, 1.9], carSport: [1.0, 2.2, 1.2], carLux: [1.0, 2.55, 1.5], policecar: [0.95, 2.2, 1.6], ambulance: [1.1, 2.8, 2.6], van: [1.0, 2.6, 2.3], truck: [1.3, 3.6, 3.2], truckArmy: [1.3, 3.6, 3.2], bus: [1.3, 5.6, 3.2], firetruck: [1.3, 4.0, 3.0],
   tank: [1.6, 2.4, 2.4], fountain: [3.3, 3.3, 0.9], fountainSmall: [1.6, 1.6, 0.8], rock: [1.1, 1.1, 1.4], floodlight: [0.3, 0.3, 12],
   trafficLight: [0.2, 0.2, 6.2], stopSign: [0.08, 0.08, 2.4], hydrant: [0.2, 0.2, 0.8],
   busstop: [1.7, 0.6, 2.6], swing: [1.6, 0.8, 2.4], slide: [1.6, 0.7, 2.2], dummy: [0.3, 0.3, 1.8], lifeguard: [1.1, 1.1, 3.6],
@@ -63,7 +63,6 @@ const ARCH = {
   bodega: { w: [30, 46], d: [26, 36], gap: 3 },
   fabrica: { w: [36, 46], d: [30, 40], gap: 4 },
   taller: { w: [14, 20], d: [16, 22], gap: 1 },
-  concesionario: { w: [24, 32], d: [22, 30], gap: 2 },
 };
 // Fondo preferido (con patio trasero) para casas: llenan la manzana espalda con espalda
 const DEEP = { casaHumilde: 20, casaMedia: 32, villa: 46, hacienda: 44, casaRural: 28 };
@@ -277,7 +276,6 @@ export function generateCity(seed = CITY_SEED) {
       case 'torre': res = B.oficina(rng, lot.w, lot.d, 26, lot.sub === 'alta' ? 92 : 60); break;
       case 'hotel': lot.name = nextName('hotel'); res = B.hotel(rng, lot.w, lot.d, lot.name); break;
       case 'taller': lot.name = nextName('taller'); res = B.taller(rng, lot.w, lot.d, lot.name); break;
-      case 'concesionario': lot.name = nextName('concesionario'); res = B.concesionario(rng, lot.w, lot.d, lot.name); break;
       case 'fabrica': res = B.fabrica(rng, lot.w, lot.d); break;
       default: res = B.bodega(rng, lot.w, lot.d); break;
     }
@@ -314,7 +312,7 @@ export function generateCity(seed = CITY_SEED) {
   for (const { def, q } of placed) {
     const fn = SITE_BUILDERS[def.kind];
     if (!fn) continue;
-    const s = { id: def.id, kind: def.kind, name: def.name, brand: def.brand, interior: def.interior, cx: q.cx, cz: q.cz, hx: q.hx, hz: q.hz, rot: q.rot, lakeSide: q.lakeSide, drop: q.drop };
+    const s = { id: def.id, kind: def.kind, name: def.name, brand: def.brand, tier: def.tier, interior: def.interior, cx: q.cx, cz: q.cz, hx: q.hx, hz: q.hz, rot: q.rot, lakeSide: q.lakeSide, drop: q.drop };
     const res = fn(s, new Rng(hashInts(seed, Math.round(q.cx), Math.round(q.cz))));
     const site = { ...s, parts: dropOnRoad(net, s, res.parts), y0: q.y0 ?? hm.height(q.cx, q.cz) };
     city.sites.push(site);
@@ -718,7 +716,6 @@ function chooseArch(dist, ctx) {
       if (k < 0.3) return { type: 'tienda', sub: rng.chance(0.2) ? 'farmacia' : 'shop' };
       if (k < 0.56) return { type: 'restaurante', sub: pick(['burger', 'pizzeria', 'taqueria', 'cafe', 'sushi']) };
       if (k < 0.68) return { type: 'taller' };
-      if (k < 0.76) return { type: 'concesionario' };
       if (k < 0.88) return { type: 'oficina' };
       return { type: 'apartamentos' };
     }
@@ -1051,18 +1048,6 @@ function streetFurniture(city, net, seed) {
           city.props.push({ type: 'bench', x, z, r: Math.atan2(-seg.uz, seg.ux) + Math.PI / 2, det: 1, col: 0 });
           const [bx, bz] = at(s + 2, half + road.sw - 0.6, -1);
           city.props.push({ type: 'bin', x: bx, z: bz, det: 1, col: 0 });
-        }
-      }
-      // autos estacionados junto a la banqueta en calles de barrio
-      if (road.district && road.w >= 7 && !rural && dist !== 'industrial') {
-        for (let s = 9; s < seg.L - 9; s += 11) {
-          const h = hashInts(seed, Math.round(seg.ax * 7 + s), Math.round(seg.az * 7), 77);
-          if (h % 100 > (dist === 'popular' ? 30 : 22)) continue;
-          const side = h % 2 ? 1 : -1;
-          const off = half - 1.1;
-          if (net.blockedIntervals(seg, off * side, 6).some(([a, b]) => s / seg.L >= a - 0.05 && s / seg.L <= b + 0.05)) continue;
-          const [x, z] = at(s, off, side);
-          city.props.push({ type: 'car', x, z, r: Math.atan2(seg.ux, seg.uz) + (side > 0 ? 0 : Math.PI), c: CAR_COLORS[h % CAR_COLORS.length], v: h % 3, col: 1 });
         }
       }
       acc += seg.L;
