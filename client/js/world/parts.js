@@ -71,10 +71,10 @@ export function renderParts(P, W, obj, parts, detail, signs, far = false, T = nu
         break;
       }
       case 'cyl':
-        P.cylinder(p.x, p.y || 0, p.z, p.r, p.r2 ?? p.r, p.h, p.seg || 8, p.c);
+        P.cylinder(p.x, p.y || 0, p.z, p.r, p.r2 ?? p.r, p.h, p.seg || 8, p.c, { bottom: (p.y || 0) > 0.05, bottomC: p.bc ?? shade(p.c, 0.7) });
         break;
       case 'cone':
-        P.cylinder(p.x, p.y || 0, p.z, p.r, 0, p.h, p.seg || 8, p.c);
+        P.cylinder(p.x, p.y || 0, p.z, p.r, 0, p.h, p.seg || 8, p.c, { bottom: (p.y || 0) > 0.05, bottomC: p.bc ?? shade(p.c, 0.7) });
         break;
       case 'door': {
         const r = p.r || 0;

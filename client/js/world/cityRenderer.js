@@ -549,8 +549,9 @@ function signMesh(signs) {
   const list = signs.slice(0, 16);
   const rows = list.length <= 4 ? 4 : list.length <= 8 ? 8 : 16;
   const cv = document.createElement('canvas');
-  cv.width = 512; cv.height = rows * 64;
+  cv.width = 528; cv.height = rows * 64;
   const g = cv.getContext('2d');
+  g.fillStyle = '#4a4f54'; g.fillRect(512, 0, 16, rows * 64);   // reverso gris de los letreros
   const b = new GeoBuilder(true);
   list.forEach((sg, i) => {
     const aspect = sg.w / sg.h;
@@ -564,11 +565,13 @@ function signMesh(signs) {
     while (g.measureText(sg.text).width > pw * 0.9 && size > 10) { size -= 2; g.font = font(size); }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(sg.text, pw / 2, y + 33);
-    const u1 = pw / 512, v0 = 1 - (i + 1) / rows, v1 = 1 - i / rows;
+    const u1 = pw / 528, v0 = 1 - (i + 1) / rows, v1 = 1 - i / rows;
     const c = Math.cos(sg.ry), s = Math.sin(sg.ry);
     const hw = sg.w / 2;
     const P = (lx, ly) => [sg.x + lx * c, sg.y + ly, sg.z - lx * s];
     b.quad(P(-hw, -sg.h / 2), P(hw, -sg.h / 2), P(hw, sg.h / 2), P(-hw, sg.h / 2), [s, 0, c], 0xffffff, [[0, v0], [u1, v0], [u1, v1], [0, v1]]);
+    const ub = 520 / 528, B = (lx, ly) => [sg.x + lx * c - s * 0.01, sg.y + ly, sg.z - lx * s - c * 0.01];
+    b.quad(B(hw, -sg.h / 2), B(-hw, -sg.h / 2), B(-hw, sg.h / 2), B(hw, sg.h / 2), [-s, 0, -c], 0xffffff, [[ub, 0.5], [ub, 0.5], [ub, 0.5], [ub, 0.5]]);
   });
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;

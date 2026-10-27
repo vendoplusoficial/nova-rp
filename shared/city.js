@@ -40,7 +40,11 @@ export const PROP_COL = {
   tank: [1.6, 2.4, 2.4], fountain: [3.3, 3.3, 0.9], fountainSmall: [1.6, 1.6, 0.8], rock: [1.1, 1.1, 1.4], floodlight: [0.3, 0.3, 12],
   trafficLight: [0.2, 0.2, 6.2], stopSign: [0.08, 0.08, 2.4], hydrant: [0.2, 0.2, 0.8],
   busstop: [1.7, 0.6, 2.6], swing: [1.6, 0.8, 2.4], slide: [1.6, 0.7, 2.2], dummy: [0.3, 0.3, 1.8], lifeguard: [1.1, 1.1, 3.6],
-  crane: [5, 5, 30], containers: [1.3, 3.1, 2.7], bush: [0, 0, 0], plane: [8, 7, 4], plane2: [5, 4.5, 3], hayBale: [0.6, 0.6, 1.2], tractor: [1.0, 1.8, 2.4],
+  crane: [5, 5, 30], containers: [1.3, 3.1, 2.7], bush: [0, 0, 0],
+  lamp: [0.15, 0.15, 7.5], lampDouble: [0.18, 0.18, 8.5], lampWood: [0.15, 0.15, 7], lampColonial: [0.2, 0.2, 4], lampgarden: [0.1, 0.1, 0.8],
+  bench: [0.9, 0.32, 0.9], bin: [0.25, 0.25, 1], planter: [0.5, 0.5, 1], mailbox: [0.2, 0.2, 1.2], grill: [0.35, 0.35, 1], crates: [0.5, 0.5, 0.8],
+  cooler: [0.45, 0.3, 1.1], table: [0.6, 0.6, 0.8], tableUmbrella: [0.5, 0.5, 0.8], hoop: [0.25, 0.25, 3.5], telescope: [0.2, 0.2, 1.3],
+  bougainvillea: [0.6, 0.6, 2], hedgeBall: [0.4, 0.4, 1], bamboo: [0.4, 0.4, 2.5], umbrellaBeach: [0.08, 0.08, 2.4], lounger: [0.35, 1, 0.5], plane: [8, 7, 4], plane2: [5, 4.5, 3], hayBale: [0.6, 0.6, 1.2], tractor: [1.0, 1.8, 2.4],
 };
 
 // Medidas de lote por arquitectura: ancho, fondo, separación entre lotes
@@ -1179,11 +1183,13 @@ function buildColliders(city) {
       cols.push({ cx: wx, cz: wz, hx: pc[0] * sc, hz: pc[1] * sc, rot: (o.rot || 0) + (p.r || 0), minY: base - 0.5, maxY: base + pc[2] * sc });
     }
   };
-  for (const lot of city.lots) for (const p of lot.parts) if (p.col) addPart(lot, p, lot.y0);
-  for (const site of city.sites) for (const p of site.parts) if (p.col) addPart(site, p, site.y0);
-  for (const cp of city.caps) for (const p of cp.parts) if (p.col) addPart(cp, p, cp.y0);
+  // también son sólidos: mobiliario con medidas conocidas y columnas/postes decorativos altos
+  const solid = (p) => p.col || (p.k === 'prop' && PROP_COL[p.type]) || (p.k === 'box' && (p.y || 0) < 1 && p.h >= 1.5 && Math.min(p.w, p.d) >= 0.12);
+  for (const lot of city.lots) for (const p of lot.parts) if (solid(p)) addPart(lot, p, lot.y0);
+  for (const site of city.sites) for (const p of site.parts) if (solid(p)) addPart(site, p, site.y0);
+  for (const cp of city.caps) for (const p of cp.parts) if (solid(p)) addPart(cp, p, cp.y0);
   for (const pr of city.props) {
-    if (!pr.col) continue;
+    if (!pr.col && !PROP_COL[pr.type]) continue;
     if (pr.type === 'palapa') { cols.push({ cx: pr.x, cz: pr.z, hx: 0.4, hz: 0.4, rot: 0, minY: pr.y - 1, maxY: pr.y + 3 }); continue; }
     const pc = PROP_COL[pr.type];
     if (!pc || pc[0] === 0) continue;

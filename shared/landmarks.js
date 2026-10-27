@@ -45,16 +45,39 @@ export const SITE_BUILDERS = {
       P.push(prop('bench', sx * 13, sz * 4.5, { r: sx > 0 ? -Math.PI / 2 : Math.PI / 2, det: 1 }));
       P.push(prop('bench', sx * 4.5, sz * 13, { r: sz > 0 ? Math.PI : 0, det: 1 }));
     }
-    // Kiosco
-    P.push(cyl(0, 0, 0, 6.6, 6.6, 0.8, 8, 0xd7ccc8, { col: 1 }));
+    // Kiosco: plataforma octagonal con escalón, columnas, barandal (con dos entradas), plafón claro,
+    // techo con moldura y linternilla
+    P.push(cyl(0, 0, 0, 7.3, 7.3, 0.35, 8, 0xc9bfae, { col: 1 }));
+    P.push(cyl(0, 0, 0, 6.6, 6.6, 0.8, 8, 0xe2d8c8, { col: 1 }));
+    P.push(cyl(0, 0, 0.8, 6.7, 6.7, 0.08, 8, 0xb5a58c));
+    const R = 5.8;
     for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      P.push(deco(Math.sin(a) * 5.7, Math.cos(a) * 5.7, 0.22, 0.22, 3.6, 0xf5f5f5, { y: 0.8, det: 0 }));
-      P.push(deco(Math.sin(a) * 5.9, Math.cos(a) * 5.9, 0.08, 0.08, 0.9, 0x2e7d32, { y: 0.8 }));
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8, b = ((i + 1) / 8) * Math.PI * 2 + Math.PI / 8;
+      const x = Math.sin(a) * R, z = Math.cos(a) * R;
+      P.push(cyl(x, z, 0.88, 0.32, 0.32, 0.35, 8, 0xf2ede4));                      // base de la columna
+      P.push(cyl(x, z, 0.88, 0.2, 0.17, 3.5, 8, 0xfaf7f2, { col: 1 }));
+      P.push(cyl(x, z, 4.3, 0.3, 0.36, 0.25, 8, 0xf2ede4));                        // capitel
+      // barandal entre columnas (menos en las dos entradas)
+      if (i === 1 || i === 5) continue;
+      const mx = (Math.sin(a) + Math.sin(b)) / 2 * R, mz = (Math.cos(a) + Math.cos(b)) / 2 * R;
+      const L = 2 * R * Math.sin(Math.PI / 8) - 0.4, r = Math.atan2(Math.sin(b) - Math.sin(a), Math.cos(b) - Math.cos(a)) - Math.PI / 2;
+      P.push(deco(mx, mz, L, 0.12, 0.1, 0x1f5e2a, { y: 1.8, r, det: 0 }));
+      P.push(box(mx, mz, L, 0.1, 0.08, 0x1f5e2a, { y: 1.0, r, colH: 1.0 }));   // pasamanos inferior (también es la colisión)
+      for (let k = 1; k < 6; k++) {
+        const t = k / 6 - 0.5, bx = mx + Math.cos(r) * L * t, bz = mz - Math.sin(r) * L * t;
+        P.push(deco(bx, bz, 0.05, 0.05, 0.8, 0x1f5e2a, { y: 1.0 }));
+      }
     }
-    P.push({ k: 'cone', x: 0, z: 0, y: 4.4, r: 7.4, h: 2.6, seg: 8, c: 0x2e7d32 });
-    P.push(cyl(0, 0, 6.8, 0.9, 0.9, 1.0, 8, 0xf5f5f5));
-    P.push({ k: 'cone', x: 0, z: 0, y: 7.8, r: 1.2, h: 1.2, seg: 8, c: 0x2e7d32 });
+    P.push({ k: 'cyl', x: 0, z: 0, y: 4.5, r: 7.6, r2: 7.6, h: 0.4, seg: 8, c: 0xf5f1ea, col: 0, det: 0, bc: 0xf1ebe0 });   // moldura y plafón
+    P.push({ k: 'cone', x: 0, z: 0, y: 4.9, r: 7.7, h: 2.6, seg: 8, c: 0x2f7d3a, bc: 0xf1ebe0 });
+    P.push(cyl(0, 0, 7.2, 1.0, 1.0, 1.1, 8, 0xf5f1ea));
+    P.push({ k: 'cone', x: 0, z: 0, y: 8.3, r: 1.4, h: 1.2, seg: 8, c: 0x2f7d3a, bc: 0xf1ebe0 });
+    P.push(cyl(0, 0, 9.5, 0.06, 0.03, 1.1, 5, 0xd4a85a));
+    // escalones de las entradas
+    for (const i of [1, 5]) {
+      const a = ((i + 0.5) / 8) * Math.PI * 2 + Math.PI / 8;
+      for (let st = 0; st < 2; st++) P.push(deco(Math.sin(a) * (7.0 + st * 0.5), Math.cos(a) * (7.0 + st * 0.5), 2.6, 0.5, 0.55 - st * 0.27, 0xd9cfbd, { r: a, det: 0 }));
+    }
     // Fuente y monumento
     P.push(prop('fountain', 0, 30, { col: 1 }));
     P.push(box(0, -30, 3.2, 3.2, 3.0, 0xbcae97));

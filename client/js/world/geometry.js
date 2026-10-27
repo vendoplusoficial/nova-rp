@@ -41,6 +41,8 @@ class FBuf {
   view() { return this.a.slice(0, this.n); }
 }
 
+const CEIL_N = [0.35, 0.6, 0.35].map((v, i, a) => v / Math.hypot(...a));
+
 export class GeoBuilder {
   constructor(withUV = false) {
     this.P = new FBuf(); this.N = new FBuf(); this.C = new FBuf(); this.U = withUV ? new FBuf(2730) : null;
@@ -118,6 +120,16 @@ export class GeoBuilder {
   quad2(a, b, c, d, nrm, hex) {
     this.quad(a, b, c, d, nrm, hex);
     this.quad(a, b, c, d, [-nrm[0], -nrm[1], -nrm[2]], hex);
+  }
+
+  // Triángulo orientado hacia "face" pero iluminado con la normal "lit" (plafones: que no se vean negros)
+  triN(a, b, c, face, lit, hex) {
+    const col = typeof hex === 'number' ? lin(hex) : hex;
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2], e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    if ((e1y * e2z - e1z * e2y) * face[0] + (e1z * e2x - e1x * e2z) * face[1] + (e1x * e2y - e1y * e2x) * face[2] < 0) { const t = b; b = c; c = t; }
+    this.vert(a[0], a[1], a[2], lit[0], lit[1], lit[2], col);
+    this.vert(b[0], b[1], b[2], lit[0], lit[1], lit[2], col);
+    this.vert(c[0], c[1], c[2], lit[0], lit[1], lit[2], col);
   }
 
   tri(a, b, c, nrm, hex) {
@@ -272,7 +284,8 @@ export class GeoBuilder {
     this.quad([x1, y - t, z0], [x0, y - t, z0], [x0, y, z0], [x1, y, z0], [0, 0, -1], f);
     this.quad([x1, y - t, z1], [x1, y - t, z0], [x1, y, z0], [x1, y, z1], [1, 0, 0], f);
     this.quad([x0, y - t, z0], [x0, y - t, z1], [x0, y, z1], [x0, y, z0], [-1, 0, 0], f);
-    this.quad([x0, y - t, z0], [x1, y - t, z0], [x1, y - t, z1], [x0, y - t, z1], [0, -1, 0], 0xe6e1d8);
+    this.triN([x0, y - t, z0], [x1, y - t, z0], [x1, y - t, z1], [0, -1, 0], CEIL_N, 0xe6e1d8);
+    this.triN([x0, y - t, z0], [x1, y - t, z1], [x0, y - t, z1], [0, -1, 0], CEIL_N, 0xe6e1d8);
   }
 
   // Techo a dos aguas (cumbrera en el eje más largo). detail: tejas, grosor y caballete
@@ -341,6 +354,8 @@ export class GeoBuilder {
         else this.quad(p0b, p1b, p1t, p0t, nrm, hex);
       }
       if (rTop > 1e-4 && opts.cap !== false) this.tri(p0t, p1t, [cx, cy + h, cz], [0, 1, 0], topHex);
+      // tapa inferior (techos cónicos y piezas elevadas: no se ven huecos desde abajo)
+      if (opts.bottom && rBot > 1e-4) this.triN(p1b, p0b, [cx, cy, cz], [0, -1, 0], CEIL_N, opts.bottomC ?? hex);
     }
   }
 
