@@ -127,6 +127,15 @@ export class GeoBuilder {
     this.vert(c[0], c[1], c[2], nx, ny, nz, col);
   }
 
+  // Triángulo con normal y color por vértice (terreno suave). Se orienta hacia "up".
+  triV(a, b, c, na, nb, nc, ca, cb, cc, up = [0, 1, 0]) {
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2], e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    if ((e1y * e2z - e1z * e2y) * up[0] + (e1z * e2x - e1x * e2z) * up[1] + (e1x * e2y - e1y * e2x) * up[2] < 0) { let t = b; b = c; c = t; t = nb; nb = nc; nc = t; t = cb; cb = cc; cc = t; }
+    this.vert(a[0], a[1], a[2], na[0], na[1], na[2], ca);
+    this.vert(b[0], b[1], b[2], nb[0], nb[1], nb[2], cb);
+    this.vert(c[0], c[1], c[2], nc[0], nc[1], nc[2], cc);
+  }
+
   // Caja alineada (en el marco actual). opts: { top, bottom, noTop, win:{sx,sy,v0} }
   box(x0, y0, z0, x1, y1, z1, hex, opts = {}) {
     const top = opts.top ?? hex;
