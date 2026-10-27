@@ -17,6 +17,10 @@ export function lin(hex) {
   return c;
 }
 
+// Color "luz": valores mayores que 1. De día se ve como un color claro saturado; de noche el
+// material de la ciudad lo hace brillar (focos, faroles, semáforos).
+export function glow(hex, k = 2.6) { return lin(hex).map((v) => v * k); }
+
 export function mixHex(a, b, t) {
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   const r = ((a >> 16) & 255) + ((((b >> 16) & 255) - ((a >> 16) & 255)) * t);

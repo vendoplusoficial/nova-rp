@@ -9,6 +9,7 @@ export class Hud {
     this.healthFill = $('health-fill');
     this.healthText = $('health-text');
     this.ammo = $('ammo');
+    this.clock = $('clock');
     this.objective = $('objective');
     this.objTitle = this.objective.querySelector('.obj-title');
     this.objSub = this.objective.querySelector('.obj-sub');
@@ -61,6 +62,7 @@ export class Hud {
     this.healthText.textContent = String(Math.round(p));
   }
 
+  setClock(text) { if (this.clock.textContent !== text) this.clock.textContent = text; }
   setAmmo(a, mag) { this.ammo.textContent = `Pistola ${a}/${mag}`; }
 
   setObjective(title, sub) {

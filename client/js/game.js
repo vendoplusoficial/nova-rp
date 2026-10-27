@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { getCity, safeZoneAt } from '/shared/city.js';
 import { NET, ANIM, COMBAT } from '/shared/constants.js';
 import { Renderer } from './engine/renderer.js';
+import { DayCycle } from './engine/daycycle.js';
 import { Physics } from './engine/physics.js';
 import { CityRenderer } from './world/cityRenderer.js';
 import { Markers } from './world/markers.js';
@@ -57,6 +58,8 @@ export class Game {
     this.cityRenderer = new CityRenderer(this.scene, this.city, this.renderer.renderer);
     this.cityRenderer.setViewDistance(this.renderer.viewDist);
     this.renderer.onViewDistance = (d) => this.cityRenderer.setViewDistance(d);
+    this.dayCycle = new DayCycle(this.renderer, this.cityRenderer);
+    this.dayCycle.update(0, true);
     this.markers = new Markers(this.scene, (x, z) => this.city.height(x, z));
     const jc = this.city.pois.jobcenter;
     this.markers.addStatic(jc.x, jc.z, 0xe07a2c);
@@ -192,6 +195,7 @@ export class Game {
 
   applyWelcome(m, first) {
     this.myId = m.id;
+    this.dayCycle?.sync(m.clock);
     this.me = { name: m.name, color: m.color, money: m.money, health: m.health, inv: m.inv, job: m.job, task: m.task, stats: m.stats };
     if (first) {
       this.player = new LocalPlayer(this, { x: m.pos.x, y: m.pos.y, z: m.pos.z, ry: m.pos.ry, color: m.color, name: m.name });
@@ -318,6 +322,8 @@ export class Game {
         : null);
     }
 
+    this.dayCycle.update(dt);
+    if (this.mapAcc === 0) this.hud.setClock(`${this.dayCycle.label} · ${this.dayCycle.phase}`);
     input.endFrame();
     this.renderer.render();
     this.renderer.trackPerformance(dt);

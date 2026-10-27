@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
-import { getAtlas } from './atlas.js';
+import { getAtlas, getAtlasNight } from './atlas.js';
 import { TERRAIN_MIN, TERRAIN_MAX_X, TERRAIN_MAX_Z, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
 import { districtAt } from '/shared/districts.js';
@@ -25,6 +25,12 @@ const GROUND = {
   costa: 0x8aa85f, playa: 0x93ad66, puerto: 0x8e8c86, industrial: 0x939089, aeropuerto: 0x86a05a, exclusiva: 0x67a84b,
   presa: 0x5f9a45, montana: 0x6b8f48, isla: 0x78a452, prision: 0x9a978c, campo: 0x6e9b4a,
 };
+const UP = [0, 1, 0], BLACK = [0, 0, 0];
+// faroles: dónde está la cabeza (m hacia +Z local), radio y color del charco de luz
+const LAMP_HEADS = {
+  lamp: { at: [1.75], r: 6.5, c: 0xc8975a }, lampDouble: { at: [1.95, -1.95], r: 7, c: 0xc8975a }, lampColonial: { at: [0], r: 5, c: 0xd0965a },
+  lampWood: { at: [1.3], r: 6, c: 0xc08a50 }, floodlight: { at: [3], r: 11, c: 0x9a9a9a },
+};
 const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const DETAIL_PROPS = new Set(['bench', 'bin', 'umbrellaBeach', 'towel', 'volleyball', 'buoy', 'mailbox', 'grill', 'lounger', 'crates', 'planter']);
@@ -35,11 +41,16 @@ export class CityRenderer {
     this.city = city;
     this.hm = city.hm;
     this.loadRadius = 260;
-    this.winTex = makeWindowTexture();
+    const [winDay, winNight] = makeWindowTexture();
+    this.winTex = winDay;
     this.winTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    this.matWin = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.winTex });
-    this.matPlain = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.matAtlas = new THREE.MeshLambertMaterial({ vertexColors: true, map: getAtlas(renderer) });
+    // de noche las ventanas encendidas brillan (mapa emisivo) y los focos de vértice "luz" también
+    this.matWin = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.winTex, emissive: 0xffffff, emissiveMap: winNight, emissiveIntensity: 0 });
+    this.matPlain = glowMaterial(new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.matAtlas = new THREE.MeshLambertMaterial({ vertexColors: true, map: getAtlas(renderer), emissive: 0xffffff, emissiveMap: getAtlasNight(renderer), emissiveIntensity: 0 });
+    // charcos de luz bajo los faroles (aditivos; solo de noche)
+    this.matGlow = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    this.night = 0;
     this.matFoliage = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); // hojas de palmera
     this.root = new THREE.Group();
     scene.add(this.root);
@@ -53,6 +64,16 @@ export class CityRenderer {
   }
 
   setViewDistance(d) { this.loadRadius = d + 40; }
+
+  // 0 = pleno día, 1 = noche cerrada (lo controla el ciclo de horario)
+  setNight(n) {
+    this.night = n;
+    this.matAtlas.emissiveIntensity = n * 0.95;
+    this.matWin.emissiveIntensity = n * 0.8;
+    this.matPlain.userData.uNight.value = n;
+    this.matGlow.opacity = n;
+    this.matGlow.visible = n > 0.02;
+  }
 
   tileKey(x, z) {
     const i = Math.floor((x - TERRAIN_MIN) / TILE), j = Math.floor((z - TERRAIN_MIN) / TILE);
@@ -192,6 +213,9 @@ export class CityRenderer {
       for (const cp of t.caps) { renderParts(P, null, cp, cp.parts, true, signs, false, T); collectSigns(cp, signs); }
       for (const p of t.props) if (p.det || DETAIL_PROPS.has(p.type)) this.prop(P, p);
       if (signs.length) group.add(signMesh(signs));
+      const G = new GeoBuilder(false);
+      for (const p of t.props) this.lightPool(G, p);
+      if (G.vertexCount) { const m = staticMesh(G.build(), this.matGlow); m.renderOrder = 1; group.add(m); }
     }
     if (P.vertexCount) group.add(staticMesh(P.build(), this.matPlain));
     if (T && T.vertexCount) group.add(staticMesh(T.build(), this.matAtlas));
@@ -200,6 +224,25 @@ export class CityRenderer {
     if (t[kind]) this.unload(t, kind); // reemplazo sin huecos al cambiar de calidad
     t[kind] = group;
     if (kind === 'base') t.lod = lod;
+  }
+
+  // Charco de luz cálida en el piso bajo la cabeza de cada farol (y de los reflectores)
+  lightPool(G, p) {
+    const L = LAMP_HEADS[p.type];
+    if (!L) return;
+    const r = p.r || 0, c = Math.cos(r), s = Math.sin(r);
+    for (const lz of L.at) {
+      const x = p.x + lz * s, z = p.z + lz * c;
+      const y = this.hm.height(x, z) + 0.2;
+      const n = 12, R = L.r;
+      const mid = [x, y, z], col = lin(L.c);
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+        const e0 = [x + Math.sin(a0) * R, this.hm.height(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
+        const e1 = [x + Math.sin(a1) * R, this.hm.height(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
+        G.triV(mid, e0, e1, UP, UP, UP, col, BLACK, BLACK);
+      }
+    }
   }
 
   prop(P, p, far = false) {
@@ -545,9 +588,16 @@ function makeWindowTexture() {
   const glass = ['#3e5163', '#4a6178', '#56708a', '#40566b', '#5f7a93', '#6d8aa3'];
   let seed = 7;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cn = document.createElement('canvas');
+  cn.width = 256; cn.height = 256;
+  const gn = cn.getContext('2d');
+  gn.fillStyle = '#000000';
+  gn.fillRect(0, 0, 256, 256);
+  const warm = ['#ffd98a', '#ffc870', '#ffe6b0', '#bcd7ff'];
   for (let gy = 0; gy < 4; gy++) {
     for (let gx = 0; gx < 4; gx++) {
       const x = gx * 64, y = gy * 64;
+      if (rnd() < 0.5) { gn.fillStyle = warm[Math.floor(rnd() * warm.length)]; gn.fillRect(x + 11, y + 13, 42, 37); }
       g.fillStyle = '#d9d9d9';
       g.fillRect(x + 9, y + 11, 46, 41);
       const base = glass[Math.floor(rnd() * glass.length)];
@@ -561,10 +611,20 @@ function makeWindowTexture() {
       g.fillRect(x + 31, y + 13, 2, 37);
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  const mk = (cv) => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t; };
+  return [mk(c), mk(cn)];
+}
+
+// Material de la ciudad: los colores de vértice mayores que 1 (focos) brillan de noche
+function glowMaterial(mat) {
+  const uNight = { value: 0 };
+  mat.userData.uNight = uNight;
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uNight = uNight;
+    sh.fragmentShader = 'uniform float uNight;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vColor * clamp(max(vColor.r, max(vColor.g, vColor.b)) - 1.0, 0.0, 1.0) * uNight;');
+  };
+  return mat;
 }
 
 export { mergeIntervals };

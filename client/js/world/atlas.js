@@ -10,7 +10,7 @@ import * as THREE from 'three';
 const S = 1024;
 // nombre -> [x, y, w, h] en píxeles
 const R = {};
-let texture = null;
+let texture = null, nightTexture = null;
 
 function rect(name, x, y, w, h) { R[name] = [x, y, w, h]; }
 
@@ -51,21 +51,44 @@ export function getAtlas(renderer) {
   cv.width = S; cv.height = S;
   const g = cv.getContext('2d');
   g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, S);
+  // mapa de noche: negro, con las ventanas encendidas (se pinta a la par del atlas de día)
+  const cn = document.createElement('canvas');
+  cn.width = S; cn.height = S;
+  gn = cn.getContext('2d');
+  gn.fillStyle = '#000000'; gn.fillRect(0, 0, S, S);
   paint(g);
+  gn = null;
   texture = new THREE.CanvasTexture(cv);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = renderer ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
+  nightTexture = new THREE.CanvasTexture(cn);
+  nightTexture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
+
+// Ventanas encendidas de noche (emisivo del mismo atlas)
+export function getAtlasNight(renderer) { getAtlas(renderer); return nightTexture; }
 
 // ---------------- pintura ----------------
 let seed = 12345;
 const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
 
+// noche: contexto del mapa emisivo, probabilidad de que una ventana esté encendida y sus tonos
+let gn = null, lit = 0.5;
+let seedN = 777;
+const rndN = () => { seedN = (seedN * 16807) % 2147483647; return seedN / 2147483647; };
+const WARM = ['#ffd98a', '#ffc870', '#ffe6b0', '#fff1cf', '#ffcf9a', '#bcd7ff'];
+function nightPane(x, y, w, h) {
+  if (!gn || rndN() >= lit) return;
+  gn.fillStyle = lit >= 1 ? (rndN() < 0.5 ? '#e8c890' : '#f0d8a8') : WARM[Math.floor(rndN() * WARM.length)];
+  gn.fillRect(x, y, w, h);
+}
+
 function inner(name) { const r = R[name]; return [r[0] + PAD, r[1] + PAD, r[2] - PAD * 2, r[3] - PAD * 2]; }
 
 // Vidrio con degradado de cielo y reflejo diagonal
 function glass(g, x, y, w, h, top, mid, bot, streak = 0.14) {
+  nightPane(x, y, w, h);
   const grd = g.createLinearGradient(x, y, x + w * 0.35, y + h);
   grd.addColorStop(0, top); grd.addColorStop(0.45, mid); grd.addColorStop(1, bot);
   g.fillStyle = grd; g.fillRect(x, y, w, h);
@@ -78,7 +101,9 @@ function glass(g, x, y, w, h, top, mid, bot, streak = 0.14) {
   g.restore();
 }
 
-function frame(g, x, y, w, h, t, col) { g.fillStyle = col; g.fillRect(x, y, w, t); g.fillRect(x, y + h - t, w, t); g.fillRect(x, y, t, h); g.fillRect(x + w - t, y, t, h); }
+function frame(g, x, y, w, h, t, col) {
+  for (const c of gn ? [g, gn] : [g]) { c.fillStyle = c === gn ? '#000000' : col; c.fillRect(x, y, w, t); c.fillRect(x, y + h - t, w, t); c.fillRect(x, y, t, h); c.fillRect(x + w - t, y, t, h); }
+}
 
 function noise(g, x, y, w, h, amt, n = 300) {
   for (let i = 0; i < n; i++) {
@@ -116,11 +141,13 @@ function paint(g) {
     for (let c = 0; c <= 2; c++) g.fillRect(x + c * cw - 1.5, y, 3, h);
     for (let c = 0; c < 2; c++) g.fillRect(x + c * cw + cw / 2 - 1, y, 2, h);
   };
+  lit = 0.35;
   curtain('glassBlue', '#a9cbe6', '#3f6f9a', '#1c3550', '#d5dde3', '#2c4258');
   curtain('glassTeal', '#b5dcdc', '#3b7d80', '#173b40', '#d9e2e2', '#28484b');
   curtain('glassBronze', '#d9c7a8', '#7a6243', '#3a2c1d', '#e2d8c8', '#4a3a28');
   curtain('glassDark', '#8aa0b4', '#2b3a49', '#11181f', '#9aa7b2', '#1b232b');
 
+  lit = 0.55;
   // ---------- fachadas con tinte (pared blanca) ----------
   const tinted = (name, fn) => {
     const [x, y, w, h] = R[name];
@@ -232,9 +259,11 @@ function paint(g) {
     frame(g, x, y, w, h, 5, frameC);
     g.fillStyle = frameC; g.fillRect(x + w / 2 - 2, y, 4, h); g.fillRect(x, y + h * 0.18, w, 4);
   };
+  lit = 1;
   cell('shopWindow', (x, y, w, h) => shopWin(x, y, w, h, '#2f3539', ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#ffffff']));
   cell('shopWindow2', (x, y, w, h) => shopWin(x, y, w, h, '#d8d8d4', ['#8d6e63', '#f5f5f5', '#ffb74d', '#90caf9']));
 
+  lit = 0.55;
   // ---------- varios ----------
   cell('winHumble', (x, y, w, h) => {
     windowPane(g, x, y, w, h, { t: 7, frame: '#7a8a8f', mid: '#4a6273', curtain: '#d35d6e' });
@@ -251,7 +280,9 @@ function paint(g) {
     g.save(); g.beginPath(); g.moveTo(x, y + h); g.lineTo(x, y + w / 2); g.arc(x + w / 2, y + w / 2, w / 2, Math.PI, 0); g.lineTo(x + w, y + h); g.closePath(); g.clip();
     windowPane(g, x, y, w, h, { t: 6, cross: true, frame: '#5d3a1a' }); g.restore();
   });
+  lit = 1;
   cell('winShop', (x, y, w, h) => shopWin(x, y, w, h, '#b0b5b8', ['#ffffff', '#e0e0e0', '#ffcc80']));
+  lit = 0.55;
   cell('vent', (x, y, w, h) => { g.fillStyle = '#b8bdc0'; g.fillRect(x, y, w, h); g.fillStyle = 'rgba(0,0,0,0.22)'; for (let i = 0; i < 10; i++) g.fillRect(x + 4, y + 6 + i * (h - 12) / 10, w - 8, 4); });
   cell('doorDouble', (x, y, w, h) => {
     g.fillStyle = '#5a3b22'; g.fillRect(x, y, w, h);
