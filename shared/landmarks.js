@@ -155,19 +155,77 @@ export const SITE_BUILDERS = {
   },
 
   carcel(site) {
+    // Prisión estilo GTA: muro perimetral con alambre de púas, cerca interior, torres de vigilancia
+    // con cabina de vidrio y reflector, acceso con caseta y pluma, dos módulos de celdas de tres
+    // pisos con ventanas enrejadas, edificio de administración y patio con cancha.
     const P = [];
     const { hx, hz } = site;
-    P.push(decal(0, 0, hx * 2, hz * 2, 0x8e8e86));
-    perimeter(P, hx - 1, hz - 1, 5, 0x9aa0a6, 0);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      P.push(box(sx * (hx - 1), sz * (hz - 1), 3, 3, 8, 0x8a9096));
-      P.push({ k: 'slab', x: sx * (hx - 1), z: sz * (hz - 1), y: 8, w: 4, d: 4, h: 0.3, c: 0x37474f });
+    const CONC = 0xb3b0a6, CONC2 = 0x9c9a92, TRIM = 0x5f6368;
+    P.push(decal(0, 0, hx * 2, hz * 2, 0x8a8a84));
+    // muro perimetral (con hueco de acceso al frente) y alambre de púas
+    perimeter(P, hx - 0.6, hz - 0.6, 6, CONC, 9, 'wall');
+    for (const [x0, z0, x1, z1] of [[-hx + 0.6, -hz + 0.6, hx - 0.6, -hz + 0.6], [-hx + 0.6, -hz + 0.6, -hx + 0.6, hz - 0.6], [hx - 0.6, -hz + 0.6, hx - 0.6, hz - 0.6], [-hx + 0.6, hz - 0.6, -4.5, hz - 0.6], [4.5, hz - 0.6, hx - 0.6, hz - 0.6]]) {
+      const L = Math.hypot(x1 - x0, z1 - z0), r = Math.atan2(-(z1 - z0), x1 - x0);
+      for (const [y, o] of [[6.25, 0.08], [6.55, -0.08], [6.85, 0]]) P.push(deco((x0 + x1) / 2 - Math.sin(r) * o, (z0 + z1) / 2 - Math.cos(r) * o, L, 0.05, 0.05, 0x6d6d6d, { y, r, det: 0 }));
+      const n = Math.max(2, Math.round(L / 2.5));
+      for (let k = 0; k <= n; k++) { const t = k / n; P.push(deco(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, 0.06, 0.06, 1.0, 0x4a4a4a, { y: 6, det: 1 })); }
     }
-    P.push(box(0, -3, 24, 10, 7, 0x8d9399));
-    for (let i = 0; i < 6; i++) P.push(win(-10 + i * 4, 2.06, 4, 0.8, 1.0, 0, { bars: true, f: 0x555555, c: 0x222222 }));
-    P.push(door(0, hz - 0.95, 5, 4, 0x4a4f54));
-    P.push(sign(0, hz - 0.85, 4.4, 9, 1.0, 'CÁRCEL MUNICIPAL', '#37474f'));
-    return { parts: P, points: { jail: [0, 4] } };
+    perimeter(P, hx - 4, hz - 4, 4, 0x8d949a, 9, 'rail', { colH: 4 });                  // cerca interior
+    // torres de vigilancia en las esquinas
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const x = sx * (hx - 1.8), z = sz * (hz - 1.8);
+      P.push(box(x, z, 3.2, 3.2, 9, CONC2));
+      P.push({ k: 'slab', x, z, y: 9, w: 4.8, d: 4.8, h: 0.3, c: TRIM });
+      P.push(box(x, z, 4.2, 4.2, 2.6, 0xd9dcdf, { y: 9.3, col: 0 }));
+      for (const r of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) P.push(panel('winOffice', x + Math.sin(r) * 2.12, z + Math.cos(r) * 2.12, 9.7, 3.4, 1.7, { r, fc: 0x2c3e50 }));
+      P.push({ k: 'hip', x, z, y: 11.9, w: 4.6, d: 4.6, rh: 1.1, c: 0x37474f, over: 0.35 });
+      P.push(prop('floodlight', x - sx * 1.2, z - sz * 1.2, { y: 0, r: Math.atan2(-sx, -sz) }));
+      for (let k = 0; k < 6; k++) P.push(deco(x + sx * 1.62, z - 1.2 + k * 0.5, 0.06, 0.06, 0.05, 0x333333, { y: 0.8 + k * 1.4, det: 1 }));   // escalera
+    }
+    // acceso: caseta, pluma, portón y letrero
+    P.push(box(7.5, hz - 3, 4, 3.4, 3.2, 0xe0e2e4));
+    P.push(panel('winOffice', 7.5, hz - 1.28, 1.1, 3.2, 1.5, { fc: 0x2c3e50 }));
+    P.push({ k: 'slab', x: 7.5, z: hz - 3, y: 3.2, w: 5, d: 4.4, h: 0.3, c: 0x37474f });
+    P.push(deco(0, hz + 0.4, 8, 0.12, 0.14, 0xd32f2f, { y: 1.0, det: 0 }));
+    for (let k = 0; k < 4; k++) P.push(deco(-3 + k * 2, hz + 0.41, 0.9, 0.13, 0.15, 0xffffff, { y: 1.0, det: 0 }));
+    P.push(deco(-4.4, hz + 0.4, 0.3, 0.3, 1.1, 0x37474f, { det: 0 }));
+    for (const sx of [-1, 1]) P.push(box(sx * 5.1, hz - 0.6, 1.3, 1.3, 8.8, CONC2));                 // pilares del arco de acceso
+    P.push(deco(0, hz - 0.6, 11.5, 1.1, 1.6, CONC2, { y: 7.2, det: 0 }));
+    P.push(deco(0, hz - 0.6, 11.7, 1.2, 0.2, TRIM, { y: 8.8, det: 0 }));
+    P.push(sign(0, hz - 0.03, 8.0, 10.5, 1.2, (site.name || 'Prisión').toUpperCase(), '#263238'));
+    // módulos de celdas
+    const cell = (cx, cz, w, d, rot) => {
+      P.push(box(cx, cz, w, d, 9.6, CONC, { r: rot }));
+      P.push({ k: 'slab', x: cx, z: cz, y: 9.6, w: rot ? d + 0.6 : w + 0.6, d: rot ? w + 0.6 : d + 0.6, h: 0.4, c: TRIM });
+      for (let f = 0; f < 3; f++) {
+        P.push(deco(cx, cz, rot ? d + 0.1 : w + 0.1, rot ? w + 0.1 : d + 0.1, 0.18, CONC2, { y: 3.1 + f * 3.1, det: 0 }));
+        const n = Math.floor(w / 2.4);
+        for (let k = 0; k < n; k++) {
+          const off = -w / 2 + (k + 0.5) * (w / n);
+          for (const side of [1, -1]) {
+            const lx = rot ? side * (d / 2 + 0.02) : off, lz = rot ? off : side * (d / 2 + 0.02);
+            const r = rot ? (side > 0 ? Math.PI / 2 : -Math.PI / 2) : (side > 0 ? 0 : Math.PI);
+            P.push(panel('winBars', cx + lx, cz + lz, 1.2 + f * 3.1, 0.9, 1.3, { r, fc: 0x2b2b2b }));
+          }
+        }
+      }
+      for (let k = 0; k < 3; k++) P.push(deco(cx + (rot ? 0 : -w / 3 + k * w / 3), cz + (rot ? -w / 3 + k * w / 3 : 0), 1.2, 1.2, 0.9, 0x8d9399, { y: 10, det: 1 }));
+    };
+    cell(-6, -hz + 9, 26, 8, 0);
+    cell(hx - 10, 1, 14, 8, 1);
+    // administración con bandera
+    P.push(box(-hx + 11, hz - 9, 14, 8, 7, 0xe8e4dc, { f: 'officePunch', fh: 3.5, par: 0.5 }));
+    P.push(door(-hx + 11, hz - 4.95, 2.4, 2.6, 0x37474f, 0, { cell: 'doorGlass' }));
+    P.push(cyl(-hx + 19, hz - 6, 0, 0.08, 0.06, 9, 5, 0xdddddd));
+    for (const [k, c] of [[0, 0x2e7d32], [1, 0xf5f5f5], [2, 0xc62828]]) P.push(deco(-hx + 19.2 + 0.4 + k * 0.8, hz - 6, 0.8, 0.05, 1.4, c, { y: 7.4, det: 0 }));
+    // patio: cancha, canastas, bancas
+    P.push(decal(-1, 5, 18, 10, 0x6d7378, { y: 0.01 }));
+    P.push(decal(-1, 5, 17, 0.12, 0xffffff, { y: 0.02, det: 1 }));
+    P.push(decal(-1, 5, 0.12, 9, 0xffffff, { y: 0.02, det: 1 }));
+    P.push(prop('hoop', -9.5, 5, { r: Math.PI / 2 }));
+    P.push(prop('hoop', 7.5, 5, { r: -Math.PI / 2 }));
+    for (let k = 0; k < 3; k++) P.push(prop('bench', -6 + k * 5, 11.5, { r: Math.PI }));
+    return { parts: P, points: { jail: [-1, 3] } };
   },
 
   mercado(site) {

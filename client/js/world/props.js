@@ -71,8 +71,8 @@ function roundTree(b, v = 0, far = false, palette = LEAF, opts = {}) {
   const h = opts.h ?? [2.6, 2.3, 2.9][v % 3];
   const R = opts.r ?? [2.1, 2.5, 1.9][v % 3];
   if (far) {
-    b.boxR(0, h / 2, 0, 0.32, h, 0.32, 0, TRUNK);
-    b.blob(0, h + R * 0.8, 0, R * 1.05, R * 0.95, R * 1.05, palette[v % palette.length], v + 1, { jitter: 0.12 });
+    b.boxR(0, (h + R * 0.5) / 2, 0, 0.32, h + R * 0.5, 0.32, 0, TRUNK);     // el tronco entra en la copa
+    b.blob(0, h + R * 0.7, 0, R * 1.05, R * 0.95, R * 1.05, palette[v % palette.length], v + 1, { jitter: 0.12 });
     return;
   }
   trunkWithBranches(b, h, 0.17, v);
@@ -105,9 +105,11 @@ const B = {
   // ---------- árboles y plantas ----------
   round: (b, c, v, far) => roundTree(b, v, far),
   oak: (b, c, v, far) => roundTree(b, v, far, [0x557f34, 0x4d7a30, 0x62893c], { h: 2.4, r: 2.8 }),
-  laurel: (b) => { // laurel de plaza recortado (típico de plazas mexicanas)
-    b.tube([[0, 0, 0], [0, 2.1, 0]], [0.2, 0.16], 6, TRUNK);
-    b.blob(0, 3.1, 0, 1.6, 1.15, 1.6, 0x3e7a3a, 3, { jitter: 0.06, flatBottom: 0.5 });
+  laurel: (b, c, v, far) => { // laurel de plaza recortado (típico de plazas mexicanas): el tronco entra en la copa
+    b.tube([[0, 0, 0], [0.05, 1.6, 0], [0, 3.0, 0.05]], [0.22, 0.17, 0.12], far ? 4 : 6, [TRUNK, shade(TRUNK, 0.9)]);
+    if (!far) { b.tube([[0, 2.0, 0], [0.6, 2.8, 0.2]], [0.08, 0.05], 4, TRUNK); b.tube([[0, 2.1, 0], [-0.5, 2.9, -0.3]], [0.08, 0.05], 4, TRUNK); }
+    b.blob(0, 3.25, 0, 1.65, 1.2, 1.65, 0x3e7a3a, 3, { jitter: 0.06, flatBottom: 0.55 });
+    if (!far) { b.blob(0.6, 3.6, 0.3, 0.9, 0.7, 0.9, 0x478a40, 5, { jitter: 0.08 }); b.blob(-0.5, 3.7, -0.4, 0.85, 0.65, 0.85, 0x36703a, 7, { jitter: 0.08 }); }
   },
   pine: (b, c, v, far) => pineTree(b, v, far),
   jacaranda: (b, c, v, far) => roundTree(b, v, far, [0x9a82c9, 0x8b72bd, 0x5f8f3e, 0xa58fd2], { h: 2.8, r: 2.3 }),
@@ -121,8 +123,10 @@ const B = {
   },
   palm: (b, c, v, far, fb) => palm(b, v, far, fb),
   bush: (b, c, v) => {
-    b.blob(0, 0.55, 0, 0.85, 0.6, 0.8, 0x4f8a3c, v + 2, { flatBottom: 0.2 });
-    b.blob(0.45, 0.45, 0.3, 0.55, 0.45, 0.5, 0x5b9947, v + 5, { flatBottom: 0.2 });
+    b.blob(0, 0.5, 0, 0.85, 0.6, 0.8, 0x4f8a3c, v + 2, { flatBottom: 0.15 });
+    b.blob(0.45, 0.42, 0.3, 0.55, 0.45, 0.5, 0x5b9947, v + 5, { flatBottom: 0.15 });
+    b.blob(-0.4, 0.38, -0.25, 0.5, 0.4, 0.45, 0x467d36, v + 8, { flatBottom: 0.15 });
+    if (v % 3 === 1) for (let i = 0; i < 5; i++) b.boxR(Math.sin(i * 2.4) * 0.55, 0.75 + (i % 2) * 0.2, Math.cos(i * 2.4) * 0.5, 0.12, 0.12, 0.12, i, 0xf4d03f);   // flores
   },
   hedgeBall: (b) => b.blob(0, 0.6, 0, 0.6, 0.62, 0.6, 0x3f7a35, 4, { jitter: 0.05, flatBottom: 0.3 }),
   bougainvillea: (b) => {
@@ -132,8 +136,10 @@ const B = {
   },
   bamboo: (b) => { for (let i = 0; i < 5; i++) b.tube([[Math.sin(i * 1.7) * 0.25, 0, Math.cos(i * 1.7) * 0.25], [Math.sin(i * 1.7) * 0.4, 2.4 + i * 0.15, Math.cos(i * 1.7) * 0.4]], [0.05, 0.04], 4, 0x7cb342); },
   planter: (b) => {
-    b.boxR(0, 0.3, 0, 1.0, 0.6, 1.0, 0, 0x9e9a92, { top: 0x6d4c3d });
-    b.blob(0, 0.95, 0, 0.55, 0.45, 0.55, 0x4e8a3e, 6, { flatBottom: 0.4 });
+    b.boxR(0, 0.3, 0, 1.0, 0.6, 1.0, 0, 0x9e9a92, { top: 0x5a3e2e });
+    b.boxR(0, 0.62, 0, 1.08, 0.06, 1.08, 0, 0xb8b3aa);                     // borde de la maceta
+    b.blob(0, 0.78, 0, 0.55, 0.45, 0.55, 0x4e8a3e, 6, { flatBottom: 0.3 });
+    for (let i = 0; i < 4; i++) b.boxR(Math.sin(i * 1.6) * 0.35, 1.0 + (i % 2) * 0.1, Math.cos(i * 1.6) * 0.35, 0.1, 0.1, 0.1, i, [0xe74c3c, 0xf1c40f, 0xe67e22, 0xd81b60][i]);
   },
   rock: (b, c, v) => {
     b.blob(0, 0.35, 0, 1.2, 0.85, 1.0, 0x8c8a80, v + 11, { jitter: 0.25, top: 0x9f9d92, bottom: 0x6a685f, flatBottom: 0.4 });
@@ -211,12 +217,27 @@ const B = {
     b.tube([[-0.24, 0.38, 0], [0.24, 0.38, 0]], [0.06, 0.06], 6, 0xfdd835);
   },
   // ---------- mobiliario ----------
-  bench: (b) => {
-    for (let i = 0; i < 3; i++) b.boxR(0, 0.46, -0.16 + i * 0.16, 1.7, 0.05, 0.13, 0, 0x9a6a44);
-    for (let i = 0; i < 2; i++) b.boxR(0, 0.68 + i * 0.16, -0.27, 1.7, 0.12, 0.04, 0, 0x9a6a44);
-    for (const s of [-0.7, 0.7]) { b.boxR(s, 0.22, 0, 0.06, 0.44, 0.48, 0, 0x2f3234); b.boxR(s, 0.6, -0.27, 0.06, 0.5, 0.06, 0, 0x2f3234); }
+  bench: (b) => { // banca de parque: patas de hierro fundido con descansabrazos y tablones de madera
+    const wood = [0xa06c43, 0x94623c, 0xa87447, 0x9a6a44];
+    for (let i = 0; i < 4; i++) b.boxR(0, 0.45 - i * 0.004, -0.2 + i * 0.13, 1.8, 0.045, 0.1, 0, wood[i]);
+    for (let i = 0; i < 3; i++) b.bar([-0.9, 0.62 + i * 0.13, -0.31 - i * 0.03], [0.9, 0.62 + i * 0.13, -0.31 - i * 0.03], 0.07, wood[(i + 1) % 4]);   // respaldo
+    const iron = 0x25282a;
+    for (const s of [-0.78, 0.78]) {
+      b.bar([s, 0, 0.22], [s, 0.44, 0.12], 0.06, iron);                     // pata delantera
+      b.bar([s, 0, -0.28], [s, 0.95, -0.38], 0.06, iron);                   // pata trasera y respaldo
+      b.boxR(s, 0.43, -0.04, 0.05, 0.05, 0.52, 0, iron);                   // larguero del asiento
+      b.bar([s, 0.62, 0.2], [s, 0.62, -0.3], 0.05, iron);                  // descansabrazos
+      b.bar([s, 0.44, 0.16], [s, 0.62, 0.18], 0.04, iron);
+    }
   },
-  bin: (b) => { b.cylinder(0, 0, 0, 0.28, 0.3, 0.9, 8, 0x2e7d32, { top: 0x1b4d1f }); b.cylinder(0, 0.9, 0, 0.31, 0.31, 0.06, 8, 0x37474f); },
+  bin: (b) => { // bote de basura de hierro con tapa y bolsa
+    b.cylinder(0, 0, 0, 0.24, 0.24, 0.08, 8, 0x1e1e1e);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; b.boxR(Math.sin(a) * 0.27, 0.48, Math.cos(a) * 0.27, 0.06, 0.82, 0.06, a, 0x1f4d2a); }
+    b.cylinder(0, 0.1, 0, 0.26, 0.28, 0.78, 8, 0x2e7d32, { cap: false });
+    b.cylinder(0, 0.86, 0, 0.3, 0.3, 0.05, 8, 0x1f4d2a);
+    b.cylinder(0, 0.91, 0, 0.27, 0.12, 0.12, 8, 0x1f4d2a);
+    b.cylinder(0, 0.78, 0, 0.22, 0.22, 0.04, 8, 0x111111);
+  },
   busstop: (b) => {
     b.boxR(0, 2.55, -0.1, 3.6, 0.1, 1.7, 0, 0x2f3a42, { bottom: true });
     b.boxR(0, 1.35, -0.75, 3.4, 2.2, 0.04, 0, 0xa9d3e6);
