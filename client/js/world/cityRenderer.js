@@ -79,19 +79,17 @@ export class CityRenderer {
     for (const p of this.city.props) add(p.x, p.z, 'props', p);
     for (const cp of this.city.caps || []) add(cp.cx, cp.cz, 'caps', cp);
     const net = this.city.net;
-    // en los quiebres de una calle los tramos se alargan un poco para no dejar cuñas abiertas
+    // en los quiebres de una calle las orillas se cortan a inglete: el lado interior se acorta y el
+    // exterior se alarga lo justo para que asfalto y banqueta sigan la curva sin dientes ni huecos
     const segs = net.segs;
     for (let k = 0; k < segs.length; k++) {
-      const seg = segs[k], road = seg.road, half = road.w / 2 + road.sw;
-      const ext = (o) => {
-        if (!o || o.road !== road) return 0;
-        const cos = Math.max(-1, Math.min(1, o.ux * seg.ux + o.uz * seg.uz));
-        return Math.min(3, half * Math.tan(Math.acos(cos) / 2)) + 0.05;
-      };
+      const seg = segs[k], road = seg.road;
       let prev = segs[k - 1], next = segs[k + 1];
       if (!prev || prev.road !== road || Math.hypot(prev.bx - seg.ax, prev.bz - seg.az) > 0.01) prev = road.closed ? segs.find((q) => q.road === road && Math.hypot(q.bx - seg.ax, q.bz - seg.az) < 0.01) : null;
       if (!next || next.road !== road || Math.hypot(next.ax - seg.bx, next.az - seg.bz) > 0.01) next = road.closed ? segs.find((q) => q.road === road && Math.hypot(q.ax - seg.bx, q.az - seg.bz) < 0.01) : null;
-      seg.extA = ext(prev); seg.extB = ext(next);
+      const turn = (a, b) => { const phi = Math.atan2(a.ux * b.uz - a.uz * b.ux, a.ux * b.ux + a.uz * b.uz); return Math.tan(Math.max(-1.1, Math.min(1.1, phi)) / 2); };
+      seg.tA = prev ? turn(prev, seg) : 0;    // giro al llegar al tramo
+      seg.tB = next ? turn(seg, next) : 0;    // giro al salir del tramo
     }
     for (const seg of net.segs) {
       const road = seg.road;
@@ -300,13 +298,16 @@ export class CityRenderer {
     this.lift = lift;
     // franjas a lo ancho (cerca: cada ~2.5 m) para que la calle siga al terreno sin que asome el pasto
     const cols = far ? 2 : Math.max(2, Math.ceil(road.w / 2.5));
-    const e0 = s0 <= 0.001 ? s0 - (seg.extA || 0) : s0, e1 = s1 >= seg.L - 0.001 ? s1 + (seg.extB || 0) : s1;
-    const steps = Math.max(1, Math.ceil((e1 - e0) / (far ? 12 : 3)));
+    // inicio y fin de cada franja según su desplazamiento (inglete en los quiebres)
+    const S0 = (off) => (s0 <= 0.001 ? miterA(seg, off) : s0), S1 = (off) => (s1 >= seg.L - 0.001 ? miterB(seg, off) : s1);
+    const steps = Math.max(1, Math.ceil((s1 - s0) / (far ? 12 : 3)));
     let prev = null;
     for (let k = 0; k <= steps; k++) {
-      const a = e0 + ((e1 - e0) * k) / steps;
       const row = [];
-      for (let ci = 0; ci <= cols; ci++) { const q = at(a, half - (road.w * ci) / cols); q[1] += lift; row.push(q); }
+      for (let ci = 0; ci <= cols; ci++) {
+        const off = half - (road.w * ci) / cols, a0 = S0(off);
+        const q = at(a0 + ((S1(off) - a0) * k) / steps, off); q[1] += lift; row.push(q);
+      }
       if (prev) for (let ci = 0; ci < cols; ci++) P.quad(row[ci + 1], row[ci], prev[ci], prev[ci + 1], [0, 1, 0], asphalt);
       prev = row;
     }
@@ -455,6 +456,10 @@ export class CityRenderer {
   }
 }
 
+// Corte a inglete: dónde empieza/termina la línea desplazada "off" (izquierda +) de un tramo
+const miterA = (seg, off) => off * (seg.tA || 0);
+const miterB = (seg, off) => seg.L - off * (seg.tB || 0);
+
 // Piezas de banqueta de un lado del tramo: [ini, fin] de la orilla interior y de la exterior (m)
 function walkPieces(net, seg, side) {
   const road = seg.road, half = road.w / 2;
@@ -468,7 +473,8 @@ function walkPieces(net, seg, side) {
     const i0 = Math.max(I[0], O[0] - slack), i1 = Math.min(I[1], O[1] + slack);
     const o0 = Math.max(O[0], I[0] - slack), o1 = Math.min(O[1], I[1] + slack);
     if (i1 - i0 < 0.3 && o1 - o0 < 0.3) continue;
-    out.push([i0 <= 0.001 ? i0 - (seg.extA || 0) : i0, i1 >= seg.L - 0.001 ? i1 + (seg.extB || 0) : i1, o0 <= 0.001 ? o0 - (seg.extA || 0) : o0, o1 >= seg.L - 0.001 ? o1 + (seg.extB || 0) : o1]);
+    const offI = side * half, offO = side * (half + road.sw);
+    out.push([i0 <= 0.001 ? miterA(seg, offI) : i0, i1 >= seg.L - 0.001 ? miterB(seg, offI) : i1, o0 <= 0.001 ? miterA(seg, offO) : o0, o1 >= seg.L - 0.001 ? miterB(seg, offO) : o1]);
   }
   return out;
 }
