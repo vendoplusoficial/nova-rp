@@ -101,6 +101,16 @@ export function casaHumilde(rng, w, d) {
     if (unfinished) for (let i = 0; i < 4; i++) P.push(deco(x2 - w2 / 2 + 0.3 + i * (w2 - 0.6) / 3, bz - (bd - d2) / 2 + d2 / 2 - 0.3, 0.06, 0.06, 0.9, 0x6d4c41, { y: topH }));
   }
   P.push({ k: 'slab', x: 0, z: bz, y: h1, w: bw + 0.1, d: bd + 0.1, h: 0.15, c: 0xbdbdbd, det: 1 });
+  // pretil (murete) alrededor de la azotea terminada
+  {
+    const top2 = twoFloors ? topH : h1;
+    const rb = P.find((q) => q.k === 'box' && (q.y || 0) === (twoFloors ? h1 : 0));
+    if (rb && rb.c !== 0x9e9e9e) {
+      const pc = shade(rb.c, 0.94), t = 0.18, ph = 0.45, x0 = rb.x - rb.w / 2, x1 = rb.x + rb.w / 2, z0 = rb.z - rb.d / 2, z1 = rb.z + rb.d / 2;
+      P.push(deco((x0 + x1) / 2, z1 - t / 2, rb.w, t, ph, pc, { y: top2 }), deco((x0 + x1) / 2, z0 + t / 2, rb.w, t, ph, pc, { y: top2 }));
+      P.push(deco(x0 + t / 2, (z0 + z1) / 2, t, rb.d - 2 * t, ph, pc, { y: top2 }), deco(x1 - t / 2, (z0 + z1) / 2, t, rb.d - 2 * t, ph, pc, { y: top2 }));
+    }
+  }
   // tinaco y varillas
   if (rng.chance(0.75)) P.push({ k: 'cyl', x: rng.float(-bw / 4, bw / 4), z: bz - bd / 4, y: topH, r: 0.55, r2: 0.55, h: 1.2, seg: 8, c: 0x1e1e1e, det: 0 });
   if (rng.chance(0.35)) P.push(deco(bw / 2 - 0.6, bz - bd / 2 + 0.5, 1.1, 1.1, 1.0, 0x8d8d8d, { y: topH }));
