@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1216">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nova RP">
+  <meta name="format-detection" content="telephone=no">
+  <title>Nova RP</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/lib/three/three.module.js",
+      "@dimforge/rapier3d-compat": "/lib/rapier/index.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <!-- ============ PANTALLAS INICIALES ============ -->
+  <div id="screens">
+    <section id="screen-login" class="screen">
+      <div class="brand">
+        <div class="logo-mark"></div>
+        <h1>NOVA <span>RP</span></h1>
+        <p class="tagline">Roleplay urbano · Puerto Nova</p>
+      </div>
+      <form id="login-form" class="card" autocomplete="on">
+        <div id="resume-box" class="resume hidden">
+          <button type="button" id="btn-resume" class="btn-primary">Continuar como <b id="resume-name"></b></button>
+          <button type="button" id="btn-switch" class="btn-link">Usar otra cuenta</button>
+        </div>
+        <div id="cred-box">
+          <label>Usuario<input id="in-user" name="username" autocomplete="username" maxlength="16" spellcheck="false" autocapitalize="off" placeholder="3-16 letras o números"></label>
+          <label>Contraseña<input id="in-pass" name="password" type="password" autocomplete="current-password" maxlength="64" placeholder="Mínimo 4 caracteres"></label>
+          <div class="row">
+            <button type="submit" id="btn-login" class="btn-primary">Entrar</button>
+            <button type="button" id="btn-register" class="btn-secondary">Crear cuenta</button>
+          </div>
+        </div>
+        <p id="login-error" class="error" role="alert"></p>
+        <p id="server-status" class="muted small"></p>
+      </form>
+    </section>
+
+    <section id="screen-play" class="screen hidden">
+      <div class="brand compact">
+        <h1>NOVA <span>RP</span></h1>
+        <p class="tagline">Hola, <b id="play-name"></b></p>
+      </div>
+      <button id="btn-fullscreen-play" class="btn-huge">JUGAR EN PANTALLA COMPLETA</button>
+      <button id="btn-window-play" class="btn-link">Jugar sin pantalla completa</button>
+      <div id="ios-tip" class="card tip hidden">
+        <b>iPhone / iPad:</b> Safari no permite pantalla completa en páginas web.
+        Para jugar sin barras: toca <span class="kbd">Compartir</span> → <span class="kbd">Agregar a inicio</span>
+        y abre <b>Nova RP</b> desde el ícono de tu pantalla de inicio.
+      </div>
+      <p class="muted small">Gira tu teléfono en horizontal · Recomendado: Chrome en Android</p>
+    </section>
+
+    <section id="screen-loading" class="screen hidden">
+      <div class="brand compact"><h1>NOVA <span>RP</span></h1></div>
+      <div class="progress"><div id="load-bar"></div></div>
+      <p id="load-text" class="muted">Cargando...</p>
+    </section>
+  </div>
+
+  <!-- ============ HUD DEL JUEGO ============ -->
+  <div id="hud" class="hidden">
+    <canvas id="minimap" data-ui="map" width="256" height="256"></canvas>
+
+    <div id="chat-log" aria-live="polite"></div>
+    <form id="chat-form" class="hidden" data-ui="chat-form">
+      <input id="chat-input" maxlength="140" autocomplete="off" placeholder="Escribe un mensaje o /ayuda">
+      <button type="submit" class="btn-chip">Enviar</button>
+      <button type="button" id="chat-close" class="btn-chip ghost">✕</button>
+    </form>
+
+    <div id="objective" class="hidden">
+      <div class="obj-title"></div>
+      <div class="obj-sub"></div>
+    </div>
+
+    <div id="topright">
+      <div id="stats">
+        <div id="money">$0</div>
+        <div class="bar health"><div id="health-fill"></div><span id="health-text">100</span></div>
+        <div id="ammo" class="muted small"></div>
+      </div>
+      <div id="topbuttons">
+        <button class="tb" data-ui="chat" aria-label="Chat"></button>
+        <button class="tb" data-ui="bike" aria-label="Pedir bicicleta"></button>
+        <button class="tb" data-ui="inv" aria-label="Inventario"></button>
+        <button class="tb" data-ui="settings" aria-label="Ajustes"></button>
+      </div>
+    </div>
+
+    <div id="netstatus" class="hidden">Reconectando…</div>
+    <div id="fps" class="hidden"></div>
+
+    <div id="crosshair"><i></i></div>
+    <div id="hitmarker"></div>
+    <div id="damage-flash"></div>
+    <div id="toasts"></div>
+
+    <!-- Controles táctiles -->
+    <div id="controls">
+      <div id="joystick" data-btn="joystick"><div class="base"></div><div class="knob"></div></div>
+      <button class="cbtn big" data-btn="fire" aria-label="Disparar"></button>
+      <button class="cbtn" data-btn="aim" aria-label="Apuntar"></button>
+      <button class="cbtn" data-btn="jump" aria-label="Saltar"></button>
+      <button class="cbtn" data-btn="crouch" aria-label="Agacharse"></button>
+      <button class="cbtn" data-btn="sprint" aria-label="Correr"></button>
+      <button class="cbtn small" data-btn="reload" aria-label="Recargar"></button>
+      <button class="cbtn big veh" data-btn="accel" aria-label="Acelerar"></button>
+      <button class="cbtn veh" data-btn="brake" aria-label="Frenar"></button>
+      <button class="cbtn veh" data-btn="boost" aria-label="Pedalear fuerte"></button>
+      <button class="cbtn veh" data-btn="exit" aria-label="Bajar"></button>
+      <button class="pill" data-btn="interact"><span class="pill-icon"></span><span id="interact-label">Interactuar</span></button>
+    </div>
+
+    <!-- Paneles -->
+    <div id="panel-settings" class="panel hidden" data-ui="panel">
+      <div class="panel-head"><h2>Ajustes</h2><button class="btn-chip ghost" data-close>✕</button></div>
+      <div class="panel-body allow-touch" id="settings-body"></div>
+    </div>
+    <div id="panel-inv" class="panel hidden" data-ui="panel">
+      <div class="panel-head"><h2>Personaje</h2><button class="btn-chip ghost" data-close>✕</button></div>
+      <div class="panel-body allow-touch" id="inv-body"></div>
+    </div>
+    <div id="panel-map" class="panel wide hidden" data-ui="panel">
+      <div class="panel-head"><h2>Mapa de Puerto Nova</h2><button class="btn-chip ghost" data-close>✕</button></div>
+      <div class="panel-body map-body">
+        <canvas id="bigmap"></canvas>
+        <div class="map-legend">
+          <div><i style="background:#3ddc97">▲</i>Tú</div>
+          <div><i style="background:#ffc444;color:#111">●</i>Objetivo</div>
+          <div><i style="background:#39b6ff"></i>Tu bicicleta</div>
+          <div><i style="background:#ffffff"></i>Jugadores</div>
+          <div><i style="background:rgba(61,220,151,0.35)"></i>Zona segura</div>
+          <div><i style="background:#3ddc97">P</i>Plaza Central</div>
+          <div><i style="background:#e07a2c">$</i>Centro de Trabajos</div>
+          <div><i style="background:#e53935">H</i>Hospital</div>
+          <div><i style="background:#3b6fd8">C</i>Comisaría</div>
+          <div><i style="background:#1b3a5c">B</i>Banco</div>
+          <div><i style="background:#8d4b32">G</i>Palacio Municipal</div>
+          <div><i style="background:#2e7d32">S</i>Plaza Comercial</div>
+          <div><i style="background:#8e2424">M</i>Mercado</div>
+          <div><i style="background:#f57c00">A</i>Armería</div>
+          <div><i style="background:#a1887f">T</i>Campo de tiro</div>
+          <div><i style="background:#d32f2f">G</i>Gasolineras</div>
+          <div><i style="background:#00695c">Bus</i>Terminal</div>
+          <div><i style="background:#0d47a1">✈</i>Aeropuerto</div>
+          <div><i style="background:#455a64">⚓</i>Puerto</div>
+          <div><i style="background:#2f8fc4">L</i>Presa y Lago</div>
+          <div><i style="background:#43a047">D</i>Unidad Deportiva</div>
+          <div><i style="background:#c2185b">♪</i>Discoteca</div>
+          <div><i style="background:#607d8b">X</i>Prisión</div>
+          <div><i style="background:#c62828">F</i>Faro</div>
+          <div><i style="background:#6d4c41">V</i>Mirador</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="layout-editor" class="hidden" data-ui="layout">
+      <span>Arrastra los botones</span>
+      <label>Tamaño <input type="range" id="le-scale" min="0.7" max="1.5" step="0.05"></label>
+      <label>Opacidad <input type="range" id="le-opacity" min="0.3" max="1" step="0.05"></label>
+      <button class="btn-chip ghost" id="le-reset">Restablecer</button>
+      <button class="btn-chip" id="le-save">Guardar</button>
+    </div>
+
+    <div id="death" class="hidden">
+      <h2>Incapacitado</h2>
+      <p>Reaparecerás en el hospital en <b id="death-count">6</b> s</p>
+    </div>
+  </div>
+
+  <div id="rotate" class="hidden">
+    <div class="phone-icon"></div>
+    <p>Gira tu teléfono en horizontal</p>
+  </div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
