@@ -26,7 +26,8 @@ este repositorio. Describe cómo está hecho el proyecto y las reglas para modif
 - `client/js/game.js` (`Game`): bucle principal y manejadores de red.
 - Ciudad: `shared/mapdata.js` es el plano (costa, islas, barrios, avenidas, lugares, zonas seguras).
   `shared/city.js` construye en este orden: terreno (`terrain.js`) → calles (`roads.js`) → manzanas (`blocks.js`)
-  → lotes y lugares → edificios (`buildings.js`, `landmarks.js`, `landmarksExtra.js`) → señales y vegetación.
+  → lotes y lugares → edificios (`buildings.js`, `landmarks.js`, `landmarksExtra.js`) → señales y vegetación
+  (Puerto Nova en `city.js`; bosques, campo y desierto de las regiones nuevas en `vegetation.js`).
   No coloques edificios sueltos: todo lote pertenece a una manzana (o a una carretera fuera de la ciudad). Los edificios se describen como "piezas"
   en coordenadas locales del lote (+Z mira a la calle); las colisiones son cajas giradas (OBB).
 - Render en `client/js/world/cityRenderer.js`:

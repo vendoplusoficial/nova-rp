@@ -21,6 +21,7 @@ import { SITE_DEFS, SAFE_ZONES, STREET_RULES, ROUNDABOUTS, LAKE, DAM, PIERS, P a
 import { SITE_BUILDERS as BASE_BUILDERS } from './landmarks.js';
 import { EXTRA_BUILDERS } from './landmarksExtra.js';
 import * as B from './buildings.js';
+import { regionVegetation } from './vegetation.js';
 
 export { DISTRICTS, districtAt };
 const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
@@ -35,7 +36,7 @@ export function getCity(seed = CITY_SEED) {
 
 // Colisiones de objetos sueltos: semiancho, semifondo, alto
 export const PROP_COL = {
-  round: [0.3, 0.3, 5], oak: [0.35, 0.35, 5], laurel: [0.3, 0.3, 5], pine: [0.3, 0.3, 6], jacaranda: [0.3, 0.3, 5], palm: [0.25, 0.25, 7], willow: [0.35, 0.35, 5],
+  round: [0.3, 0.3, 5], oak: [0.35, 0.35, 5], laurel: [0.3, 0.3, 5], pine: [0.3, 0.3, 6], jacaranda: [0.3, 0.3, 5], palm: [0.25, 0.25, 7], willow: [0.35, 0.35, 5], cactus: [0.3, 0.3, 4], shrubDry: [0, 0, 0], agave: [0, 0, 0],
   car: [0.95, 2.2, 1.5], carCompact: [0.9, 1.95, 1.5], carSedan: [0.95, 2.3, 1.45], carSUV: [1.0, 2.4, 1.9], carPickup: [1.0, 2.65, 1.9], carSport: [1.0, 2.2, 1.2], carLux: [1.0, 2.55, 1.5], policecar: [0.95, 2.2, 1.6], ambulance: [1.1, 2.8, 2.6], van: [1.0, 2.6, 2.3], truck: [1.3, 3.6, 3.2], truckArmy: [1.3, 3.6, 3.2], bus: [1.3, 5.6, 3.2], firetruck: [1.3, 4.0, 3.0],
   tank: [1.6, 2.4, 2.4], fountain: [3.3, 3.3, 0.9], fountainSmall: [1.6, 1.6, 0.8], rock: [1.1, 1.1, 1.4], floodlight: [0.3, 0.3, 12],
   trafficLight: [0.2, 0.2, 6.2], stopSign: [0.08, 0.08, 2.4], hydrant: [0.2, 0.2, 0.8],
@@ -355,6 +356,7 @@ export function generateCity(seed = CITY_SEED) {
   city.world = new WorldTerrain(hm);
   city.world.seam();
   city.height = (x, z) => city.world.height(x, z);
+  city.wildTrees = regionVegetation(city, seed);   // bosques, campo y desierto de las regiones nuevas
   buildColliders(city);
   city.fence = fenceLines();
   for (const line of city.fence) {

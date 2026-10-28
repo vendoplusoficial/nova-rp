@@ -78,7 +78,8 @@ gasolineras, y recorridos con el colisionador del vehículo.
 ## 7. Etapas siguientes
 
 1. ~~Planificación~~ (este documento)
-2. Geografía: costas de las tres regiones, montañas (cordilleras, cañones), lagos, río, desierto.
+2. ~~Geografía~~: costas de las tres regiones, montañas (cordilleras, cañones), lagos, río, playas,
+   desierto y vegetación natural por región (`shared/vegetation.js`).
 3. Red vial: autopistas, puentes con soportes y barandal, periféricos, caminos; validación física.
 4. Urbanismo: barrios y manzanas de las dos ciudades nuevas y de los pueblos.
 5. Construcción: edificios con arquitectura propia por región (montaña / desierto).

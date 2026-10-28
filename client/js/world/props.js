@@ -128,6 +128,27 @@ const B = {
     b.blob(-0.4, 0.38, -0.25, 0.5, 0.4, 0.45, 0x467d36, v + 8, { flatBottom: 0.15 });
     if (v % 3 === 1) for (let i = 0; i < 5; i++) b.boxR(Math.sin(i * 2.4) * 0.55, 0.75 + (i % 2) * 0.2, Math.cos(i * 2.4) * 0.5, 0.12, 0.12, 0.12, i, 0xf4d03f);   // flores
   },
+  // ---------- plantas del desierto ----------
+  cactus: (b, c, v, far) => { // sahuaro: tallo acanalado y brazos que suben
+    const H = [4.2, 3.4, 4.8][v % 3], G = 0x5f8a3e, seg = far ? 5 : 7;
+    b.cylinder(0, 0, 0, 0.34, 0.3, H, seg, G);
+    b.blob(0, H, 0, 0.3, 0.22, 0.3, shade(G, 1.08), v + 3);
+    const arms = [[[1, 1.6, 1.0]], [[-1, 1.3, 0.8]], [[1, 2.0, 1.1], [-1, 1.4, 0.9]]][v % 3];
+    for (const [sd, y0, L] of arms) {
+      b.tube([[0, y0, 0], [sd * 0.75, y0 + 0.15, 0], [sd * 0.8, y0 + 0.5 + L, 0]], [0.2, 0.2, 0.18], far ? 4 : 6, shade(G, 0.95));
+      if (!far) b.blob(sd * 0.8, y0 + 0.5 + L, 0, 0.18, 0.14, 0.18, shade(G, 1.08), v + 5);
+    }
+  },
+  shrubDry: (b, c, v) => { // matorral seco del desierto
+    b.blob(0, 0.35, 0, 0.75, 0.4, 0.7, [0x8d8a52, 0x9a8a5c, 0x7d7e4c][v % 3], v + 2, { flatBottom: 0.2, jitter: 0.2 });
+    b.blob(0.35, 0.3, 0.25, 0.45, 0.3, 0.4, 0xa39a68, v + 6, { flatBottom: 0.2, jitter: 0.2 });
+  },
+  agave: (b, c, v) => { // maguey: hojas largas en roseta
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2 + v, dx = Math.sin(a), dz = Math.cos(a);
+      b.bar([dx * 0.1, 0.1, dz * 0.1], [dx * 0.85, 0.9 + (k % 2) * 0.25, dz * 0.85], 0.14, k % 2 ? 0x6f9a8a : 0x5f8a7c);
+    }
+  },
   hedgeBall: (b) => b.blob(0, 0.6, 0, 0.6, 0.62, 0.6, 0x3f7a35, 4, { jitter: 0.05, flatBottom: 0.3 }),
   bougainvillea: (b) => {
     b.blob(0, 0.8, 0, 0.9, 0.85, 0.8, 0x4e8a3e, 3, { flatBottom: 0.3 });
@@ -464,10 +485,10 @@ function wheels(b, x, zs, r) {
 
 
 // Objetos que se omiten en mosaicos lejanos (pequeños)
-export const FAR_SKIP = new Set(['stopSign', 'hydrant', 'hayBale', 'lamp', 'lampColonial', 'lampDouble', 'lampWood', 'lampgarden', 'busstop', 'car', 'carCompact', 'carSedan', 'carSUV', 'carPickup', 'carSport', 'carLux', 'policecar', 'mailbox', 'bin', 'bench', 'scooter', 'bush', 'hedgeBall', 'bougainvillea', 'planter', 'bamboo', 'crates', 'cooler', 'laundry', 'grill', 'table', 'tableUmbrella', 'lounger', 'hoop', 'telescope', 'dummy', 'carts', 'towel', 'buoy', 'trafficLight']);
+export const FAR_SKIP = new Set(['stopSign', 'hydrant', 'hayBale', 'lamp', 'lampColonial', 'lampDouble', 'lampWood', 'lampgarden', 'busstop', 'car', 'carCompact', 'carSedan', 'carSUV', 'carPickup', 'carSport', 'carLux', 'policecar', 'mailbox', 'bin', 'bench', 'scooter', 'bush', 'hedgeBall', 'bougainvillea', 'planter', 'bamboo', 'crates', 'cooler', 'laundry', 'grill', 'table', 'tableUmbrella', 'lounger', 'hoop', 'telescope', 'dummy', 'carts', 'towel', 'buoy', 'trafficLight', 'shrubDry', 'agave']);
 // Objetos con versión simplificada lejos
-const HAS_LOD = new Set(['round', 'oak', 'jacaranda', 'willow', 'pine', 'palm']);
-const VARIANTS = { round: 3, oak: 3, jacaranda: 3, willow: 1, pine: 3, palm: 3, bush: 3, rock: 3, car: 3 };
+const HAS_LOD = new Set(['round', 'oak', 'jacaranda', 'willow', 'pine', 'palm', 'cactus']);
+const VARIANTS = { round: 3, oak: 3, jacaranda: 3, willow: 1, pine: 3, palm: 3, bush: 3, rock: 3, car: 3, cactus: 3, shrubDry: 3, agave: 3 };
 
 export function PROTO(type, color, far = false, variant = 0) {
   const fn = B[type];
