@@ -8,7 +8,7 @@ import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
 import { getAtlas, getAtlasNight } from './atlas.js';
-import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
+import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, regionAt, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
 import { districtAt } from '/shared/districts.js';
 import { mergeIntervals, freeIntervals } from '/shared/roads.js';
@@ -31,6 +31,7 @@ const LAMP_HEADS = {
   lamp: { at: [1.75], r: 6.5, c: 0xc8975a }, lampDouble: { at: [1.95, -1.95], r: 7, c: 0xc8975a }, lampColonial: { at: [0], r: 5, c: 0xd0965a },
   lampWood: { at: [1.3], r: 6, c: 0xc08a50 }, floodlight: { at: [3], r: 11, c: 0x9a9a9a },
 };
+const inFineArea = (x, z) => x > -960 && x < 960 && z > -960 && z < 896;
 const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const DETAIL_PROPS = new Set(['bench', 'bin', 'umbrellaBeach', 'towel', 'volleyball', 'buoy', 'mailbox', 'grill', 'lounger', 'crates', 'planter']);
@@ -288,6 +289,20 @@ export class CityRenderer {
         P.triV(V[k00], V[k01], V[k11], Nn[k00], Nn[k01], Nn[k11], C[k00], C[k01], C[k11]);
       }
     }
+    // faldón: franja vertical bajo el borde del mosaico; tapa las grietas entre mosaicos de
+    // distinta calidad (cerca/lejos), sobre todo en montañas
+    const D = hm.res >= 8 ? 6 : 1.5;
+    const edges = [[0, 1, 0, 0], [0, 1, m - 1, 0], [0, 0, 0, 1], [m - 1, 0, 0, 1]];   // [a0, da, b0, db]
+    for (const [a0, da, b0, db] of edges) {
+      for (let q = 0; q < m - 1; q++) {
+        const ka = (b0 + db * q) * m + (a0 + da * q), kb = (b0 + db * (q + 1)) * m + (a0 + da * (q + 1));
+        const A = V[ka], Bv = V[kb];
+        if (A[1] < -3 && Bv[1] < -3) continue;
+        const A2 = [A[0], A[1] - D, A[2]], B2 = [Bv[0], Bv[1] - D, Bv[2]];
+        P.triV(A, Bv, B2, Nn[ka], Nn[kb], Nn[kb], C[ka], C[kb], C[kb], [da ? 0 : (a0 ? 1 : -1), 0, db ? 0 : (b0 ? 1 : -1)]);
+        P.triV(A, B2, A2, Nn[ka], Nn[kb], Nn[ka], C[ka], C[kb], C[ka], [da ? 0 : (a0 ? 1 : -1), 0, db ? 0 : (b0 ? 1 : -1)]);
+      }
+    }
   }
 
   // Cuánto se baja (solo visualmente) cada vértice del terreno de un mosaico
@@ -308,12 +323,28 @@ export class CityRenderer {
   // slope = pendiente (desnivel / distancia). Roca y tierra se mezclan poco a poco con el pasto.
   groundColor(x, z, h, slope) {
     const n = fbm(x * 0.03, z * 0.03, 5, 2);
-    let base;
+    let base, reg;
     const ld = landDist(x, z);
     if (h < 0.15) base = 0xbfae82;                                         // fondo cerca de la orilla
     else if (isSandy(x, z) && ld < 70 && h < 4) base = mixHex(0xd9c693, 0xe6d6a8, smoothstepC(0.5, 1.1, h));   // playa
     else if (lakeDist(x, z) > -4 && h < LAKE_LEVEL + 1.5) base = 0xa99d7c;  // orilla del lago
-    else if (!playable(x, z, -2)) {
+    else if ((reg = regionAt(x, z)) === 'desierto') {
+      // desierto: arena dorada, tierra ocre y roca rojiza en las laderas y terrazas
+      const k = fbm(x * 0.004, z * 0.004, 91, 3);
+      base = mixHex(0xd8b878, 0xc9a066, smoothstepC(-0.2, 0.3, k));
+      base = mixHex(base, 0xe3c58b, smoothstepC(0.15, 0.45, fbm(x * 0.012, z * 0.012, 93, 2)));
+      base = mixHex(base, 0xb5784a, smoothstepC(0.25, 0.6, slope));
+      base = mixHex(base, 0x8a5136, smoothstepC(0.7, 1.2, slope));
+      base = mixHex(base, 0xa86a42, smoothstepC(25, 70, h) * 0.5);                             // estratos altos más rojizos
+      if (ld < 30 && h < 3) base = mixHex(0xe6d3a0, base, ld / 30);
+    } else if (reg === 'montana' && !inFineArea(x, z)) {
+      // montaña: pastizal en los valles, bosque oscuro en las laderas, roca y pradera alpina arriba
+      base = h > 140 ? mixHex(0x5e7a45, 0x8f9a7a, smoothstepC(140, 220, h)) : mixHex(0x5f8f45, 0x3c6a37, smoothstepC(20, 80, h));
+      base = mixHex(base, 0x4f7536, smoothstepC(-0.1, 0.4, fbm(x * 0.008, z * 0.008, 95, 2)) * 0.5);
+      base = mixHex(base, 0x878274, smoothstepC(0.85, 1.35, slope) * (0.6 + 0.4 * smoothstepC(60, 160, h)));
+      base = mixHex(base, 0xb9bcb8, smoothstepC(200, 235, h) * 0.6);                       // cumbres claras
+      if (ld < 14 && h < 5) base = 0x9a9077;
+    } else if (!playable(x, z, -2)) {
       // sierra: bosque abajo, pasto alpino arriba y roca en lo empinado
       base = h > 55 ? mixHex(0x6f8c4c, 0x8a9466, smoothstepC(55, 75, h)) : mixHex(0x5f8a45, 0x6f8c4c, smoothstepC(22, 40, h));
       base = mixHex(base, 0x8b8778, smoothstepC(0.55, 1.0, slope));

@@ -8,7 +8,7 @@
 // Ejes: +X = este, +Z = sur. Nivel del mar = 0.
 
 import { MAINLAND, ISLANDS, LAKE, RIVER, CAUSEWAYS, PIERS, SANDY, RIDGES, HILLS, PLATEAUS } from './mapdata.js';
-import { REGIONS, WORLD_PLAN_BOUNDS } from './worldplan.js';
+import { REGIONS, WORLD_PLAN_BOUNDS, RANGES_PLAN } from './worldplan.js';
 
 export const SEA_LEVEL = 0;
 export const TERRAIN_RES = 4;                 // metros por celda de la malla fina (Puerto Nova)
@@ -138,16 +138,18 @@ function signedDistance(G, mask) {
 // Tierra: Puerto Nova + islas + las tres regiones del plano; calzadas y muelles; el río corta
 function buildFields(G) {
   const n = G.nx * G.nz;
-  const land = new Uint8Array(n), lake = new Uint8Array(n), sandy = new Uint8Array(n);
+  const land = new Uint8Array(n), lake = new Uint8Array(n), sandy = new Uint8Array(n), region = new Uint8Array(n);
   scanFill(G, land, MAINLAND, 1);
   for (const r of REGIONS) scanFill(G, land, r.coast, 1);
+  REGIONS.forEach((r, i) => scanFill(G, region, r.coast, i + 1));
+  scanFill(G, region, MAINLAND, 1);
   for (const is of ISLANDS) scanFill(G, land, is.pts, 1);
   for (const c of CAUSEWAYS) stampLine(G, land, c.pts, c.width / 2, 1);
   for (const p of PIERS) if (p.h < 5) stampLine(G, land, p.pts, p.width / 2, 1);
   stampLine(G, land, RIVER.pts, RIVER.width / 2, 0);
   scanFill(G, lake, LAKE.pts, 1);
   for (const s of SANDY) scanFill(G, sandy, s, 1);
-  return { G, land, lake, sandy, dist: signedDistance(G, land), lakeD: signedDistance(G, lake) };
+  return { G, land, lake, sandy, region, dist: signedDistance(G, land), lakeD: signedDistance(G, lake) };
 }
 let FF = null, FC = null;
 const fineFields = () => FF || (FF = buildFields(FINE));
@@ -171,6 +173,9 @@ function nearest(F, arr, x, z) {
 export function landDist(x, z) { const F = fieldsAt(x, z); return sample(F, F.dist, x, z); }
 // Distancia a la orilla del lago (+ dentro del agua)
 export function lakeDist(x, z) { const F = fieldsAt(x, z); return sample(F, F.lakeD, x, z); }
+// Región del plano en un punto: 'costera' | 'montana' | 'desierto' | null (mar)
+const REGION_IDS = [null, ...REGIONS.map((r) => r.id)];
+export function regionAt(x, z) { const F = fieldsAt(x, z); return REGION_IDS[nearest(F, F.region, x, z)] ?? null; }
 export function isSandy(x, z) { const F = fieldsAt(x, z); return nearest(F, F.sandy, x, z) === 1; }
 export function inWorld(x, z, margin = 0) { return x > WORLD.x0 + margin && x < WORLD.x1 - margin && z > WORLD.z0 + margin && z < WORLD.z1 - margin; }
 
@@ -182,6 +187,80 @@ for (const r of RIDGES) r.bb = bbox(r.pts, r.w);
 for (const c of CAUSEWAYS) c.bb = bbox(c.pts, c.width / 2 + 8);
 for (const p of PIERS) p.bb = bbox(p.pts, p.width / 2 + 4);
 const RIVER_BB = bbox(RIVER.pts, RIVER.width / 2 + 17);
+
+// ---------- relieve de las regiones nuevas (etapa 2b) ----------
+// Ruido "de crestas": líneas de cumbre y valles en lugar de bultos redondos (cordilleras naturales)
+function ridged(x, z, seed, oct = 4) {
+  let s = 0, amp = 0.55, f = 1, w = 1;
+  for (let i = 0; i < oct; i++) {
+    let n = 1 - Math.abs(valueNoise(x * f, z * f, seed + i * 31));
+    n *= n * w;
+    w = clamp(n * 1.6, 0, 1);              // las crestas altas tienen más detalle que los valles
+    s += n * amp; amp *= 0.5; f *= 2.1;
+  }
+  return s;                                 // ~0..1
+}
+for (const r of RANGES_PLAN) r.bb = bbox(r.pts, r.w);
+// Se desvanece cerca de Puerto Nova: la ciudad y su malla fina no cambian
+const fineFade = (x, z) => {
+  const ox = Math.max(TERRAIN_MIN - x, 0, x - TERRAIN_MAX_X), oz = Math.max(TERRAIN_MIN - z, 0, z - TERRAIN_MAX_Z);
+  return smoothstep(0, 180, Math.hypot(ox, oz));
+};
+const REG = { 1: 'costera', 2: 'montana', 3: 'desierto' };
+function regionRelief(x, z, d, rid) {
+  const reg = REG[rid];
+  if (!reg) return 0;
+  const fade = fineFade(x, z);
+  if (fade <= 0) return 0;
+  let h = 0;
+  if (reg === 'montana') {
+    // región de colinas: la ciudad queda sobre lomas de 10-30 m; tierra adentro sube
+    h += smoothstep(0, 260, d) * (14 + 16 * fbm(x * 0.0016, z * 0.0016, 21, 3)) + 6 * fbm(x * 0.006, z * 0.006, 23, 2) * smoothstep(0, 120, d);
+  } else if (reg === 'desierto') {
+    h += smoothstep(0, 220, d) * (5 + 4 * fbm(x * 0.0018, z * 0.0018, 31, 3));
+    // campos de dunas (crestas asimétricas, onduladas por el viento) donde el ruido lo indica
+    const field = smoothstep(0.05, 0.3, fbm(x * 0.0012, z * 0.0012, 37, 2));
+    if (field > 0) {
+      const warp = 26 * fbm(x * 0.004, z * 0.004, 41, 2);
+      const ph = ((x * 0.72 + z * 0.31 + warp * 4) / 58) % 1;
+      const crest = Math.pow(1 - Math.abs(2 * (ph < 0 ? ph + 1 : ph) - 1), 1.6);
+      h += field * smoothstep(40, 160, d) * (3.2 + 2.2 * fbm(x * 0.01, z * 0.01, 43, 2)) * crest;
+    }
+  } else {
+    // campo de la región costera: lomas suaves
+    h += smoothstep(0, 180, d) * (3 + 6 * (0.5 + 0.5 * fbm(x * 0.0022, z * 0.0022, 51, 3)));
+  }
+  for (const r of RANGES_PLAN) {
+    if (REGION_ID[r.region] !== rid || !inBox(r.bb, x, z)) continue;
+    const dd = distToPolyline(r.pts, x, z);
+    if (dd >= r.w) continue;
+    const t0 = 1 - dd / r.w, t = t0 * t0 * (3 - 2 * t0);
+    if (r.kind === 'cordillera' || r.kind === 'cerros') {
+      // cumbres irregulares y laderas con valles (no pirámides)
+      const rn = ridged(x * 0.0035, z * 0.0035, 61, 4);
+      h += r.h * t * (0.35 + 0.85 * rn) + r.h * 0.12 * t * fbm(x * 0.02, z * 0.02, 67, 2);
+    } else if (r.kind === 'arida' || r.kind === 'canones') {
+      // montaña árida en terrazas (estratos) y mesetas
+      const rn = ridged(x * 0.0055, z * 0.0055, 71, 4);
+      let v = r.h * t * (0.3 + 0.95 * rn);
+      // cimas aplanadas en mesetas (nada de pirámides): por encima del tope sube muy poco
+      const top = r.h * (0.5 + 0.2 * fbm(x * 0.002, z * 0.002, 75, 2));
+      if (v > top) v = top + (v - top) * 0.12;
+      const step = 14, q = Math.floor(v / step), fr = v / step - q;
+      v = (q + smoothstep(0.42, 0.58, fr)) * step;                // escalones de roca bien marcados
+      if (r.kind === 'canones') {
+        // cañón serpenteante que corta la meseta
+        const off = distToPolyline(r.pts, x + 60 * fbm(x * 0.003, z * 0.003, 73, 2), z + 60 * fbm(x * 0.003 + 9, z * 0.003, 79, 2));
+        v *= 0.35 + 0.65 * smoothstep(10, 34, off);
+      }
+      h += v;
+    } else {
+      h += r.h * t * (0.7 + 0.3 * fbm(x * 0.005, z * 0.005, 83, 2));    // colinas
+    }
+  }
+  return h * fade * smoothstep(0, 25, d);
+}
+const REGION_ID = { costera: 1, montana: 2, desierto: 3 };
 
 export function baseHeight(x, z) {
   const f = fieldsAt(x, z);
@@ -212,6 +291,7 @@ export function baseHeight(x, z) {
       const dd = Math.hypot(x - is.peakAt[0], z - is.peakAt[1]);
       if (dd < 80) { const t = 1 - dd / 80; h += is.peak * t * t * (3 - 2 * t) * smoothstep(0, 12, d); }
     }
+    h += regionRelief(x, z, d, nearest(f, f.region, x, z));
   }
   // lago de la presa
   const ld = sample(f, f.lakeD, x, z);

@@ -85,11 +85,11 @@ export const RIVERS_PLAN = [
 // ---------------- RELIEVE ----------------
 // sierras (polilínea, semiancho en m, altura en m) y zonas de terreno
 export const RANGES_PLAN = [
-  { region: 'montana', pts: WL([[200, 70], [300, 60], [400, 90], [470, 140]]), w: 260, h: 150, kind: 'cordillera' },
-  { region: 'montana', pts: WL([[480, 40], [560, 70], [600, 120]]), w: 180, h: 110, kind: 'cordillera' },
+  { region: 'montana', pts: WL([[200, 70], [300, 60], [400, 90], [470, 140]]), w: 300, h: 230, kind: 'cordillera' },
+  { region: 'montana', pts: WL([[480, 40], [560, 70], [600, 120]]), w: 220, h: 160, kind: 'cordillera' },
   { region: 'montana', pts: WL([[30, 190], [45, 300]]), w: 140, h: 70, kind: 'cerros' },
   { region: 'montana', pts: WL([[520, 230], [560, 280]]), w: 120, h: 55, kind: 'cerros' },
-  { region: 'desierto', pts: WL([[1030, 40], [1130, 70], [1200, 130]]), w: 220, h: 120, kind: 'arida' },
+  { region: 'desierto', pts: WL([[1030, 40], [1130, 70], [1200, 130]]), w: 240, h: 150, kind: 'arida' },
   { region: 'desierto', pts: WL([[1170, 250], [1250, 330], [1270, 420]]), w: 160, h: 90, kind: 'arida' },
   { region: 'desierto', pts: WL([[1060, 460], [1150, 500], [1250, 540]]), w: 170, h: 85, kind: 'canones' },
   { region: 'desierto', pts: WL([[770, 320], [800, 400]]), w: 120, h: 50, kind: 'arida' },
