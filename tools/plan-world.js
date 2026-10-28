@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import { REGIONS, CITIES, TOWNS, LAKES_PLAN, RIVERS_PLAN, RANGES_PLAN, HIGHWAYS_PLAN, RINGS_PLAN, ROADS_PLAN, WORLD_PLAN_BOUNDS, W } from '../shared/worldplan.js';
 import { MAINLAND, ISLANDS, MAIN_ROADS } from '../shared/mapdata.js';
-import { pointInPoly } from '../shared/terrain.js';
+import { pointInPoly, planWaterAt } from '../shared/terrain.js';
 
 let errors = 0;
 const fail = (m) => { console.error('ERROR:', m); errors++; };
@@ -18,7 +18,7 @@ const ok = (m) => { if (errors === mark) console.log('  ✔', m); mark = errors;
 
 const landPolys = [...REGIONS.map((r) => r.coast), MAINLAND, ...ISLANDS.map((i) => i.pts)];
 const onLand = (x, z) => landPolys.some((p) => pointInPoly(p, x, z));
-const inLake = (x, z) => LAKES_PLAN.some((l) => ((x - l.center[0]) / l.rx) ** 2 + ((z - l.center[1]) / l.rz) ** 2 < 1);
+const inLake = (x, z) => planWaterAt(x, z, 0);   // lagos (orilla real) y ríos del plano
 const regionAt = (x, z) => { if (pointInPoly(MAINLAND, x, z)) return 'costera'; const r = REGIONS.find((q) => pointInPoly(q.coast, x, z)); return r ? r.id : null; };
 
 // ---------- 1. regiones separadas ----------
@@ -42,10 +42,11 @@ for (const r of allRoads) {
   const n = r.closed ? r.pts.length : r.pts.length - 1;
   for (let i = 0; i < n; i++) {
     const a = r.pts[i], b = r.pts[(i + 1) % r.pts.length];
-    const isBridge = r.bridge && i >= r.bridge[0] && i < r.bridge[1];
+    const spans = [r.bridge, ...(r.bridges || [])].filter(Boolean);
+    const isBridge = spans.some((b) => i >= b[0] && i < b[1]);
     if (isBridge) continue;
     const wet = sampleSeg(a, b).filter(([x, z]) => !onLand(x, z) || inLake(x, z)).length;
-    if (wet > 1) fail(`${r.id}: el tramo ${i} cruza agua sin puente (${wet} muestras)`);
+    if (wet > 0) fail(`${r.id}: el tramo ${i} cruza agua (mar, lago o río) sin puente (${wet} muestras)`);
   }
   if (r.bridge) {
     bridges++;

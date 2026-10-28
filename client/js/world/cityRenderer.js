@@ -8,8 +8,9 @@ import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
 import { getAtlas, getAtlasNight } from './atlas.js';
-import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, regionAt, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
+import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, regionAt, lakeShape, lakeLevel, riverAt, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
+import { LAKES_PLAN, RIVERS_PLAN } from '/shared/worldplan.js';
 import { districtAt } from '/shared/districts.js';
 import { mergeIntervals, freeIntervals } from '/shared/roads.js';
 
@@ -31,6 +32,16 @@ const LAMP_HEADS = {
   lamp: { at: [1.75], r: 6.5, c: 0xc8975a }, lampDouble: { at: [1.95, -1.95], r: 7, c: 0xc8975a }, lampColonial: { at: [0], r: 5, c: 0xd0965a },
   lampWood: { at: [1.3], r: 6, c: 0xc08a50 }, floodlight: { at: [3], r: 11, c: 0x9a9a9a },
 };
+// orilla de lago (arena/grava) o ribera del río; null si no hay agua cerca
+function planShore(x, z, h) {
+  for (const L of LAKES_PLAN) {
+    if (Math.abs(x - L.center[0]) > L.rx * 1.6 || Math.abs(z - L.center[1]) > L.rz * 1.6) continue;
+    const r = lakeShape(L, x, z);
+    if (r < 1.3 && h < lakeLevel(L) + 1.6) return L.region === 'desierto' ? 0xd9c08a : 0xc2b089;
+  }
+  for (const R of RIVERS_PLAN) { const rv = riverAt(R, x, z); if (rv && rv.d < R.width / 2 + 7) return 0x8e8a76; }
+  return null;
+}
 const inFineArea = (x, z) => x > -960 && x < 960 && z > -960 && z < 896;
 const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -323,11 +334,12 @@ export class CityRenderer {
   // slope = pendiente (desnivel / distancia). Roca y tierra se mezclan poco a poco con el pasto.
   groundColor(x, z, h, slope) {
     const n = fbm(x * 0.03, z * 0.03, 5, 2);
-    let base, reg;
+    let base, reg, shore;
     const ld = landDist(x, z);
     if (h < 0.15) base = 0xbfae82;                                         // fondo cerca de la orilla
     else if (isSandy(x, z) && ld < 70 && h < 4) base = mixHex(0xd9c693, 0xe6d6a8, smoothstepC(0.5, 1.1, h));   // playa
     else if (lakeDist(x, z) > -4 && h < LAKE_LEVEL + 1.5) base = 0xa99d7c;  // orilla del lago
+    else if (!inFineArea(x, z) && (shore = planShore(x, z, h))) base = shore;               // orillas de lagos y río
     else if ((reg = regionAt(x, z)) === 'desierto') {
       // desierto: arena dorada, tierra ocre y roca rojiza en las laderas y terrazas
       const k = fbm(x * 0.004, z * 0.004, 91, 3);
@@ -522,6 +534,30 @@ export class CityRenderer {
     for (let z = z0 - 16; z < z1 + 16; z += G) for (let x = x0 - 16; x < x1 + 16; x += G) {
       if (Math.max(lakeDist(x, z), lakeDist(x + G, z), lakeDist(x, z + G), lakeDist(x + G, z + G)) < -6) continue;
       lb.quad([x, Y, z], [x, Y, z + G], [x + G, Y, z + G], [x + G, Y, z], [0, 1, 0], 0x2f8a9c);
+    }
+    // lagos y río de las regiones nuevas (alturas absolutas: cada uno tiene su nivel)
+    for (const L of LAKES_PLAN) {
+      const lv = lakeLevel(L) - LAKE_LEVEL, G2 = 6;
+      for (let z = L.center[1] - L.rz * 1.4; z < L.center[1] + L.rz * 1.4; z += G2) for (let x = L.center[0] - L.rx * 1.4; x < L.center[0] + L.rx * 1.4; x += G2) {
+        if (Math.min(lakeShape(L, x, z), lakeShape(L, x + G2, z), lakeShape(L, x, z + G2), lakeShape(L, x + G2, z + G2)) > 1.08) continue;
+        lb.quad([x, lv, z], [x, lv, z + G2], [x + G2, lv, z + G2], [x + G2, lv, z], [0, 1, 0], L.region === 'desierto' ? 0x2f9aa0 : 0x2f8a9c);
+      }
+    }
+    for (const R of RIVERS_PLAN) {
+      // cinta de agua siguiendo el cauce (baja hacia el mar)
+      let prev = null;
+      const pts = [];
+      for (let i = 0; i < R.pts.length - 1; i++) { const a = R.pts[i], b = R.pts[i + 1], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 8); for (let k = 0; k < n; k++) pts.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]); }
+      pts.push(R.pts[R.pts.length - 1]);
+      pts.forEach((p, i) => {
+        const q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)];
+        let tx = q[0] - o[0], tz = q[1] - o[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+        const rv = riverAt(R, p[0], p[1]), y = (rv ? rv.water : 0) - LAKE_LEVEL, w = R.width / 2 + 2;
+        const cur = [[p[0] - tz * w, y, p[1] + tx * w], [p[0] + tz * w, y, p[1] - tx * w]];
+        if (landDist(p[0], p[1]) < -4) { prev = null; return; }   // la desembocadura ya es mar
+        if (prev) lb.quad(prev[0], prev[1], cur[1], cur[0], [0, 1, 0], 0x3a8fa8);
+        prev = cur;
+      });
     }
     const lakeGeo = lb.build();
     this.lake = new THREE.Mesh(lakeGeo, new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.88, depthWrite: false }));

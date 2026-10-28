@@ -13,7 +13,7 @@
 
 import { Rng, hashInts } from './rng.js';
 import { CITY_SEED } from './constants.js';
-import { Heightmap, WorldTerrain, playable, SEA_LEVEL, fenceLines, coastLines, landDist, isSandy, lakeDist, pointInPoly, inWorld } from './terrain.js';
+import { Heightmap, WorldTerrain, playable, SEA_LEVEL, fenceLines, coastLines, landDist, isSandy, lakeDist, pointInPoly, inWorld, inFine } from './terrain.js';
 import { DISTRICTS, districtAt } from './districts.js';
 import { RoadNet, buildMainRoads, buildLocalRoads, rectContains, segDist, segPointDist } from './roads.js';
 import { buildBlocks, frontages, runAt, rayToPoly, rectInPoly, insetPoly, removeLoops, signedArea } from './blocks.js';
@@ -1077,7 +1077,8 @@ function beachAndSea(city, seed) {
         const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
         const h = hashInts(seed, k, 31);
         const at = (d) => [x + nx * d, z + nz * d];
-        const sandy = isSandy(x + nx * 12, z + nz * 12);
+        // fuera de Puerto Nova las playas nuevas (y el desierto) se decoran en otra etapa: costa rocosa
+        const sandy = inFine(x, z) && isSandy(x + nx * 12, z + nz * 12);
         if (sandy) {
           if (h % 3 === 0) {
             const [ux, uz] = at(10 + (h % 14));

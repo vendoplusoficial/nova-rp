@@ -82,6 +82,13 @@ export const RIVERS_PLAN = [
   { id: 'rio_montana', region: 'montana', width: 14, pts: WL([[540, 160], [568, 240], [590, 300], [606, 335], [628, 348]]) },
 ];
 
+// playas de arena de las regiones nuevas (en el desierto toda la costa es de arena)
+export const BEACHES_PLAN = [
+  { region: 'costera', pts: WL([[290, 845], [410, 850], [450, 905], [390, 925], [300, 890], [250, 860]]) },
+  { region: 'costera', pts: WL([[60, 545], [130, 520], [160, 560], [90, 600]]) },
+  { region: 'montana', pts: WL([[30, 200], [60, 170], [70, 260], [35, 270]]) },
+];
+
 // ---------------- RELIEVE ----------------
 // sierras (polilínea, semiancho en m, altura en m) y zonas de terreno
 export const RANGES_PLAN = [
@@ -107,8 +114,9 @@ export const HIGHWAYS_PLAN = [
   // sale del Anillo por el norte (nodo R6 / Av. Juárez), pasa junto al rancho y cruza al sureste de la montaña
   { id: 'A2', name: 'Autopista Central', cls: 'autopista', from: 'costera', to: 'montana',
     pts: [P(735, 193), ...WL([[690, 680], [660, 610], [610, 575], [598, 545], [530, 452], [500, 420], [460, 380], [424, 345]])], bridge: [4, 5] },
+  // cruza el río de la montaña (puente corto) y el mar hacia el desierto (puente largo)
   { id: 'A3', name: 'Autopista del Norte', cls: 'autopista', from: 'montana', to: 'desierto',
-    pts: WL([[420, 238], [500, 215], [580, 205], [638, 222], [700, 245], [760, 265], [830, 275], [845, 290]]), bridge: [3, 5] },
+    pts: WL([[420, 238], [500, 215], [550, 209], [565, 207], [580, 205], [638, 222], [700, 245], [760, 265], [830, 275], [845, 290]]), bridge: [5, 7], bridges: [[2, 3]] },
   // sale del Anillo por el noreste (nodo R12), pasa por el Pueblo Rural y cruza al desierto
   { id: 'A4', name: 'Autopista del Oriente', cls: 'autopista', from: 'costera', to: 'desierto',
     pts: [P(1165, 315), ...WL([[880, 735], [940, 700], [1000, 660], [1010, 620], [982, 592], [1010, 525], [1035, 472], [1040, 420], [1000, 415]])], bridge: [5, 7] },

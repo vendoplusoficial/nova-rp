@@ -8,7 +8,7 @@
 // Ejes: +X = este, +Z = sur. Nivel del mar = 0.
 
 import { MAINLAND, ISLANDS, LAKE, RIVER, CAUSEWAYS, PIERS, SANDY, RIDGES, HILLS, PLATEAUS } from './mapdata.js';
-import { REGIONS, WORLD_PLAN_BOUNDS, RANGES_PLAN } from './worldplan.js';
+import { REGIONS, WORLD_PLAN_BOUNDS, RANGES_PLAN, LAKES_PLAN, RIVERS_PLAN, BEACHES_PLAN } from './worldplan.js';
 
 export const SEA_LEVEL = 0;
 export const TERRAIN_RES = 4;                 // metros por celda de la malla fina (Puerto Nova)
@@ -149,6 +149,9 @@ function buildFields(G) {
   stampLine(G, land, RIVER.pts, RIVER.width / 2, 0);
   scanFill(G, lake, LAKE.pts, 1);
   for (const s of SANDY) scanFill(G, sandy, s, 1);
+  for (const b of BEACHES_PLAN) scanFill(G, sandy, b.pts, 1);
+  const desert = REGIONS.find((r) => r.id === 'desierto');
+  if (desert) scanFill(G, sandy, desert.coast, 1);              // el desierto es todo arena
   return { G, land, lake, sandy, region, dist: signedDistance(G, land), lakeD: signedDistance(G, lake) };
 }
 let FF = null, FC = null;
@@ -262,7 +265,7 @@ function regionRelief(x, z, d, rid) {
 }
 const REGION_ID = { costera: 1, montana: 2, desierto: 3 };
 
-export function baseHeight(x, z) {
+function baseCore(x, z) {
   const f = fieldsAt(x, z);
   const d = sample(f, f.dist, x, z);
   let h;
@@ -317,6 +320,90 @@ export function baseHeight(x, z) {
   return h;
 }
 
+// ---------- agua de las regiones nuevas (etapa 2c): lagos con orilla irregular y río ----------
+// Forma del lago: elipse deformada con ruido (orillas irregulares). < 1 = agua
+export function lakeShape(L, x, z) {
+  const dx = (x - L.center[0]) / L.rx, dz = (z - L.center[1]) / L.rz;
+  const r = Math.hypot(dx, dz);
+  if (r > 2.2) return r;
+  const a = Math.atan2(dz, dx), c = Math.cos(a), s = Math.sin(a);
+  const k = 1 + 0.16 * valueNoise(c * 1.8 + 7, s * 1.8, 97) + 0.07 * valueNoise(c * 4.5, s * 4.5 + 3, 101);
+  return r / k;
+}
+// Nivel del agua: un poco abajo del punto más bajo de la orilla (el lago ocupa la depresión)
+export function lakeLevel(L) {
+  if (L.level !== undefined) return L.level;
+  let mn = Infinity;
+  for (let i = 0; i < 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    for (const f of [1.05, 1.2]) {
+      // punto sobre la orilla real (busca el radio donde lakeShape = f)
+      let lo = 0.2, hi = 2.2;
+      for (let k = 0; k < 18; k++) { const m = (lo + hi) / 2; const x = L.center[0] + Math.cos(a) * L.rx * m, z = L.center[1] + Math.sin(a) * L.rz * m; if (lakeShape(L, x, z) < f) lo = m; else hi = m; }
+      mn = Math.min(mn, baseCore(L.center[0] + Math.cos(a) * L.rx * lo, L.center[1] + Math.sin(a) * L.rz * lo));
+    }
+  }
+  return (L.level = Math.max(1.6, mn - 0.8));
+}
+// Perfil del río: el lecho baja siempre hacia la desembocadura (nunca sube)
+function riverProfile(R) {
+  if (R.prof) return R.prof;
+  const pts = [], cum = [0];
+  for (let i = 0; i < R.pts.length - 1; i++) {
+    const a = R.pts[i], b = R.pts[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 8));
+    for (let k = 0; k < n; k++) pts.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
+  }
+  pts.push(R.pts[R.pts.length - 1]);
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const bed = pts.map(([x, z]) => baseCore(x, z) - 3.2);
+  for (let i = 1; i < bed.length; i++) bed[i] = Math.min(bed[i], bed[i - 1] - 0.05);
+  for (let i = 0; i < bed.length; i++) bed[i] = Math.min(bed[i], lerp(bed[0], -2.4, cum[i] / cum[cum.length - 1]) + 6);   // pendiente regular
+  bed[bed.length - 1] = Math.min(bed[bed.length - 1], -2.4);
+  return (R.prof = { pts, cum, bed });
+}
+// Lecho y superficie del agua del río en el punto más cercano (null si está lejos)
+export function riverAt(R, x, z) {
+  if (!inBox(R.bb, x, z)) return null;
+  const P = riverProfile(R);
+  let best = Infinity, bi = 0, bt = 0;
+  for (let i = 0; i < P.pts.length - 1; i++) {
+    const a = P.pts[i], b = P.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+    const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / L2, 0, 1);
+    const d = Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
+    if (d < best) { best = d; bi = i; bt = t; }
+  }
+  const bed = P.bed[bi] + (P.bed[bi + 1] - P.bed[bi]) * bt;
+  return { d: best, bed, water: Math.max(0, bed + 1.6) };
+}
+for (const L of LAKES_PLAN) L.bb = [L.center[0] - L.rx * 2.2, L.center[0] + L.rx * 2.2, L.center[1] - L.rz * 2.2, L.center[1] + L.rz * 2.2];
+for (const R of RIVERS_PLAN) R.bb = bbox(R.pts, R.width / 2 + 45);
+// ¿Hay agua de lago o río del plano en (x,z)? (margin > 0 = más tierra adentro)
+export function planWaterAt(x, z, margin = 0) {
+  for (const L of LAKES_PLAN) if (inBox(L.bb, x, z) && lakeShape(L, x, z) < 1 + margin / Math.min(L.rx, L.rz)) return true;
+  for (const R of RIVERS_PLAN) { const r = riverAt(R, x, z); if (r && r.d < R.width / 2 + margin) return true; }
+  return false;
+}
+
+export function baseHeight(x, z) {
+  let h = baseCore(x, z);
+  for (const L of LAKES_PLAN) {
+    if (!inBox(L.bb, x, z)) continue;
+    const r = lakeShape(L, x, z);
+    if (r > 1.8) continue;
+    const lv = lakeLevel(L);
+    if (r < 1) h = lv - 0.5 - 5 * (1 - r * r);                                 // vaso del lago
+    else h = lerp(lv + 0.35, h, smoothstep(1, 1.8, r));                         // orilla que baja al agua
+  }
+  for (const R of RIVERS_PLAN) {
+    const rv = riverAt(R, x, z);
+    if (!rv) continue;
+    const w = R.width / 2, bank = clamp((h - rv.bed) * 1.6, 10, 40);
+    if (rv.d < w) h = rv.bed;
+    else if (rv.d < w + bank) h = lerp(rv.bed + 1.9, h, smoothstep(w, w + bank, rv.d));
+  }
+  return h;
+}
+
 // ---------- mapa de alturas con aplanado ----------
 export class Heightmap {
   // G = malla (por defecto la fina de Puerto Nova); passes = suavizado tierra adentro
@@ -341,7 +428,7 @@ export class Heightmap {
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
       const x = this.x0 + i * this.res, z = this.z0 + j * this.res;
       const k = j * nx + i;
-      if (this.h[k] < 2.5 || lakeDist(x, z) > -30 || landDist(x, z) < 12) { fixed[k] = 1; continue; }
+      if (this.h[k] < 2.5 || lakeDist(x, z) > -30 || landDist(x, z) < 12 || planWaterAt(x, z, 25)) { fixed[k] = 1; continue; }
       if (inBox(RIVER_BB, x, z) && distToPolyline(RIVER.pts, x, z) < RIVER.width / 2 + 20) { fixed[k] = 1; continue; }
       for (const p of PIERS) if (inBox(p.bb, x, z)) { fixed[k] = 1; break; }
     }
@@ -496,6 +583,7 @@ export class WorldTerrain {
 export function playable(x, z, margin = 0) {
   if (!inWorld(x, z, 4 + margin)) return false;
   if (landDist(x, z) < 1.2 + margin) return false;
+  if (!inFine(x, z) && planWaterAt(x, z, 1.2 + margin)) return false;
   if (lakeDist(x, z) > -(1.2 + margin)) {
     // los muelles sobre el lago sí se pueden pisar
     for (const p of PIERS) if (p.h > 5 && distToPolyline(p.pts, x, z) < p.width / 2 - margin) return true;
