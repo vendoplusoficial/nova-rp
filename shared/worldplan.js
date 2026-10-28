@@ -133,7 +133,8 @@ export const ROADS_PLAN = [
   { name: 'Camino a Pueblo Costero', cls: 'secundaria', pts: [P(262, 520), ...WL([[470, 835], [400, 848], [372, 852]])] },
   { name: 'Camino del Lago', cls: 'secundaria', pts: WL([[340, 722], [360, 712], [350, 760], [372, 852]]) },
   { name: 'Camino al Rancho', cls: 'terraceria', pts: WL([[668, 625], [655, 635], [620, 650]]) },
-  { name: 'Carretera Pueblo Rural', cls: 'secundaria', pts: WL([[880, 735], [865, 690], [860, 655], [900, 625], [960, 600]]) },
+  // sale de la A4, pasa por el Pueblo Rural y vuelve a la A4 (salida y entrada reales)
+  { name: 'Carretera Pueblo Rural', cls: 'secundaria', pts: WL([[940, 700], [880, 690], [860, 655], [900, 625], [960, 600], [1000, 660]]) },
   { name: 'Carretera a la Planta', cls: 'secundaria', pts: [P(1186, 415), ...WL([[960, 792], [1050, 782], [1090, 775]])] },
   { name: 'Camino de Pueblo Alto', cls: 'secundaria', pts: WL([[164, 300], [150, 220], [140, 160], [140, 118]]) },
   { name: 'Camino Lago Verde', cls: 'terraceria', pts: WL([[150, 220], [128, 255], [100, 245]]) },

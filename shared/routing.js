@@ -8,7 +8,7 @@ import { landDist, lakeDist, inFine } from './terrain.js';
 const CELL = 8;
 
 export function routeFromCity(city, { sources, target, avoid = [], box }) {
-  const B = box || { x0: -1110, z0: -1110, x1: 1110, z1: 1050 };
+  const B = box || { x0: Math.min(-1110, target[0] - 60), z0: Math.min(-1110, target[1] - 60), x1: Math.max(1110, target[0] + 60), z1: Math.max(1050, target[1] + 60) };
   const nx = Math.ceil((B.x1 - B.x0) / CELL) + 1, nz = Math.ceil((B.z1 - B.z0) / CELL) + 1;
   const X = (i) => B.x0 + i * CELL, Z = (j) => B.z0 + j * CELL;
   const idx = (i, j) => j * nx + i;

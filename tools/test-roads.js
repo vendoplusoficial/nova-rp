@@ -1,13 +1,14 @@
 // Validación física de la red vial entre regiones (shared/highways.js).
 // Uso: node tools/test-roads.js
 // Recorre cada vía cada 4 m (centro y ambos carriles) y comprueba:
-//   pendiente máxima, radio de curva, cruces a la misma altura, suelo continuo (sin escalones ni
+//   pendiente máxima, radio de curva, cruces a la misma altura (o fin en un pueblo), suelo continuo (sin escalones ni
 //   huecos), que nada la bloquee (edificios, valla invisible, árboles), que se pueda pisar (zona
 //   jugable, también sobre los puentes), altura libre de los puentes y que Puerto Nova no cambió.
 
 import { getCity } from '../shared/city.js';
 import { CollisionGrid } from '../shared/collision.js';
 import { playable } from '../shared/terrain.js';
+import { TOWNS } from '../shared/worldplan.js';
 
 const city = getCity();
 const net = city.highways;
@@ -16,7 +17,7 @@ let errors = 0;
 const fail = (m) => { errors++; console.log('  ✘ ' + m); };
 const ok = (m) => console.log('  ✔ ' + m);
 const RAMP = 250;   // m desde un cruce donde se permiten curvas de enlace más cerradas
-const RAMP_RMIN = 50;
+const RAMP_RMIN = 50;   // (o el 60 % del radio de la vía si es menor: caminos secundarios)
 
 console.log(`Red vial: ${net.roads.length} vías, ${net.piers.length} pilas de puente`);
 for (const r of net.roads) {
@@ -38,7 +39,8 @@ for (const r of net.roads) {
     if (nearEnd) minRamp = Math.min(minRamp, R); else minR = Math.min(minR, R);
   }
   if (minR < r.spec.rmin * 0.7) fail(`${r.id}: curva de radio ${minR.toFixed(0)} m (mínimo ${r.spec.rmin})`);
-  if (minRamp < RAMP_RMIN) fail(`${r.id}: curva de enlace de radio ${minRamp.toFixed(0)} m (mínimo ${RAMP_RMIN})`);
+  const rampMin = Math.min(RAMP_RMIN, r.spec.rmin * 0.6);
+  if (minRamp < rampMin) fail(`${r.id}: curva de enlace de radio ${minRamp.toFixed(0)} m (mínimo ${rampMin})`);
   // recorrido físico
   let blocked = 0, unplay = 0, steps = 0, gap = 0, firstBad = null;
   let prevS = null;
@@ -52,13 +54,13 @@ for (const r of net.roads) {
       if (!playable(px, pz, 0)) { unplay++; firstBad ||= [px, pz, 'no jugable']; }
     }
     const s0 = city.surface(x, z, y + 0.5);
-    if (prevS !== null && Math.abs(s0 - prevS) > 0.45) { steps++; firstBad ||= [x, z, 'escalón']; }
+    if (prevS !== null && Math.abs(s0 - prevS) > r.spec.grade * ST + 0.25) { steps++; firstBad ||= [x, z, 'escalón']; }
     prevS = s0;
   }
   if (blocked) fail(`${r.id}: ${blocked} puntos bloqueados por colisiones`);
   if (unplay) fail(`${r.id}: ${unplay} puntos fuera de la zona jugable`);
   if (gap) fail(`${r.id}: ${gap} puntos donde el suelo no coincide con la rasante`);
-  if (steps) fail(`${r.id}: ${steps} escalones de más de 45 cm`);
+  if (steps) fail(`${r.id}: ${steps} escalones (más que la pendiente permitida + 25 cm)`);
   if (firstBad) console.log(`    primer problema: ${firstBad[2]} en (${firstBad[0].toFixed(0)}, ${firstBad[1].toFixed(0)})`);
   // puentes: altura libre sobre el agua
   for (let i = 0; i < n; i++) if (r.water[i] === 1 && r.y[i] < 8.9) { fail(`${r.id}: puente sobre el mar a solo ${r.y[i].toFixed(1)} m`); break; }
@@ -67,10 +69,32 @@ for (const r of net.roads) {
     const [x, z] = r.pts[k];
     const other = net.roads.find((o) => o !== r && o.pts.some((p, j) => Math.hypot(p[0] - x, p[1] - z) < 6 && Math.abs(o.y[j] - r.y[k]) < 0.6));
     const pn = city.net.segs.some((sg) => { const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / L2)); return Math.hypot(x - sg.ax - dx * t, z - sg.az - dz * t) < 1 && Math.abs(city.height(x, z) - r.y[k]) < 0.6; });
-    if (!other && !pn) fail(`${r.id}: el extremo (${x.toFixed(0)}, ${z.toFixed(0)}) no llega a otra vía`);
+    const town = TOWNS.find((t) => Math.hypot(t.at[0] - x, t.at[1] - z) < 200);   // termina en un pueblo o lugar
+    if (!other && !pn && !town) fail(`${r.id}: el extremo (${x.toFixed(0)}, ${z.toFixed(0)}) no llega a otra vía ni a un pueblo`);
   }
-  if (errors === before) ok(`${r.name} (${r.id}): ${(n * ST / 1000).toFixed(2)} km, pendiente máx ${(maxG * 100).toFixed(1)}%, radio mín ${minR.toFixed(0)} m, enlaces ${r.joins.join(' / ') || '—'}`);
+  if (errors === before) ok(`${r.name} (${r.id}): ${(n * ST / 1000).toFixed(2)} km, pendiente máx ${(maxG * 100).toFixed(1)}%, radio mín ${isFinite(minR) ? minR.toFixed(0) + ' m' : 'recta'}, enlaces ${[...r.joins, ...r.towns].join(' / ') || '—'}`);
 }
+// cruces entre vías fuera de sus extremos: deben estar a la misma altura (o uno pasa por un puente)
+let crossings = 0;
+const segsOf = (r) => { const out = [], n = r.pts.length; for (let i = 0; i < (r.closed ? n : n - 1); i++) out.push([i, r.pts[i], r.pts[(i + 1) % n]]); return out; };
+const inter = (a, b, c, d) => {
+  const den = (b[0] - a[0]) * (d[1] - c[1]) - (b[1] - a[1]) * (d[0] - c[0]);
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((c[0] - a[0]) * (d[1] - c[1]) - (c[1] - a[1]) * (d[0] - c[0])) / den, u = ((c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+};
+for (let a = 0; a < net.roads.length; a++) for (let b = a + 1; b < net.roads.length; b++) {
+  const A = net.roads[a], Bv = net.roads[b];
+  for (const [i, p, q] of segsOf(A)) for (const [j, s, t] of segsOf(Bv)) {
+    if (Math.max(p[0], q[0]) < Math.min(s[0], t[0]) || Math.min(p[0], q[0]) > Math.max(s[0], t[0])) continue;
+    const tt = inter(p, q, s, t);
+    if (tt === null) continue;
+    const ya = A.y[i], yb = Bv.y[j];
+    if (Math.abs(ya - yb) > 0.4 && !(A.deck[i] && ya - yb > 5) && !(Bv.deck[j] && yb - ya > 5)) { crossings++; if (crossings < 4) fail(`${A.id} y ${Bv.id} se cruzan a distinta altura (${ya.toFixed(1)} / ${yb.toFixed(1)} m) en (${p[0].toFixed(0)}, ${p[1].toFixed(0)})`); }
+  }
+}
+if (!crossings) ok('todos los cruces entre vías están a la misma altura');
+
 // Puerto Nova no cambia
 if (city.lots.length !== 925 || city.sites.length !== 189) fail(`Puerto Nova cambió: ${city.lots.length} lotes, ${city.sites.length} sitios`);
 else ok('Puerto Nova intacto (925 lotes, 189 sitios)');

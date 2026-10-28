@@ -8,7 +8,7 @@
 // Determinista: cliente y servidor obtienen exactamente la misma red.
 
 import { inFine, planWaterAt, lakeDist, landDist, smoothstep, distToPolyline, registerDecks, LAKE_LEVEL } from './terrain.js';
-import { HIGHWAYS_PLAN, RINGS_PLAN } from './worldplan.js';
+import { HIGHWAYS_PLAN, RINGS_PLAN, ROADS_PLAN, TOWNS } from './worldplan.js';
 import { routeFromCity } from './routing.js';
 
 const ST = 4;   // separación de estaciones (m)
@@ -76,7 +76,7 @@ function resample(pts, step, closed) {
 function relax(pts, closed, free = () => true, iters = 400) {
   const n = pts.length, orig = pts.map((p) => [p[0], p[1]]), P = pts.map((p) => [p[0], p[1]]);
   for (let it = 0; it < iters; it++) {
-    for (let i = closed ? 0 : 2; i < (closed ? n : n - 2); i++) {
+    for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
       const a = P[(i - 1 + n) % n], b = P[(i + 1) % n];
       const x = P[i][0] + 0.5 * ((a[0] + b[0]) / 2 - P[i][0]), z = P[i][1] + 0.5 * ((a[1] + b[1]) / 2 - P[i][1]);
       if (Math.hypot(x - orig[i][0], z - orig[i][1]) > 80 || !free(x, z)) continue;
@@ -147,6 +147,11 @@ function profile(t, floor, pins, g, closed) {
   return y;
 }
 
+// ¿el punto está sobre una calle de Puerto Nova? (de ahí sale la vía)
+function onCityStreet(city, p) {
+  return city.net.segs.some((sg) => distToPolyline([[sg.ax, sg.az], [sg.bx, sg.bz]], p[0], p[1]) < 30);
+}
+
 // ---------- red completa ----------
 export function buildHighways(city) {
   const H0 = city.height;   // terreno antes de nivelar
@@ -154,32 +159,38 @@ export function buildHighways(city) {
   const defs = [
     ...RINGS_PLAN.map((r) => ({ id: 'P-' + r.city, name: r.name, cls: 'periferico', pts: r.pts, closed: true })),
     ...HIGHWAYS_PLAN.map((h) => ({ id: h.id, name: h.name, cls: h.cls, pts: h.pts })),
+    // caminos a pueblos y lugares (el que lleva túnel se construye aparte)
+    ...ROADS_PLAN.filter((r) => !r.tunnel).map((r, k) => ({ id: 'R' + (k + 1), name: r.name, cls: r.cls, pts: r.pts })),
   ];
   const exits = [], keepFine = makeKeepFine(city);
   for (const def of defs) {
     const spec = ROAD_SPEC[def.cls];
     let pts = def.pts.map((p) => [p[0], p[1]]);
     // salida de Puerto Nova: se busca por terreno libre desde las avenidas (sin tocar lotes ni sitios)
-    if (!def.closed && inFine(pts[0][0], pts[0][1])) {
+    if (!def.closed && inFine(pts[0][0], pts[0][1]) && onCityStreet(city, pts[0])) {
       const k = pts.findIndex((p) => !inFine(p[0], p[1]));
       const route = routeFromCity(city, { sources: city.net.roads.filter((r) => r.cls === 'avenida'), target: pts[k], avoid: exits });
-      if (route) { pts = [...route, ...pts.slice(k + 1)]; exits.push(route); def.exitFrom = route.from; def.free = route.free; }
+      if (!route) continue;   // sin salida libre no se construye (nunca se atraviesa la ciudad)
+      pts = [...route, ...pts.slice(k + 1)]; exits.push(route); def.exitFrom = route.from; def.free = route.free;
     }
     // los extremos se pegan a la vía ya construida más cercana (cruce real, misma altura)
     const pins = [];
     if (!def.closed) {
       for (const end of [0, pts.length - 1]) {
         const p = pts[end];
+        if (end === 0 && def.exitFrom) { pins.push({ end, y: H0(p[0], p[1]), to: def.exitFrom }); continue; }   // sale de una calle de Puerto Nova
         let best = null;
         for (const r of roads) { const q = nearestOn(r, p[0], p[1]); if (q.d < 90 && (!best || q.d < best.q.d)) best = { r, q }; }
-        if (best) { pts[end] = [best.q.x, best.q.z]; pins.push({ end, y: best.q.y, to: best.r.id }); }
-        else if (inFine(p[0], p[1])) pins.push({ end, y: H0(p[0], p[1]), to: def.exitFrom || 'Puerto Nova' });
+        if (best) { pts[end] = [best.q.x, best.q.z]; pins.push({ end, y: best.q.y, to: best.r.id }); continue; }
+        const town = TOWNS.find((t) => Math.hypot(t.at[0] - p[0], t.at[1] - p[1]) < 80);
+        if (town) (def.towns ||= []).push(town.name);
+        else if (inFine(p[0], p[1]) && onCityStreet(city, p)) pins.push({ end, y: H0(p[0], p[1]), to: 'Puerto Nova' });
       }
     }
     const smooth = resample(fillet(pts, spec.rmin, def.closed), 8, def.closed);
     const line = resample(def.closed ? smooth : relax(smooth, false, def.free), ST, def.closed);   // los periféricos ya son curvas amplias
     const n = line.length;
-    const road = { id: def.id, name: def.name, cls: def.cls, spec, closed: !!def.closed, pts: line, joins: pins.map((p) => p.to) };
+    const road = { id: def.id, name: def.name, cls: def.cls, spec, closed: !!def.closed, pts: line, joins: pins.map((p) => p.to), towns: def.towns || [] };
     // ---------- agua bajo la vía ----------
     const water = new Uint8Array(n), floor = new Float32Array(n).fill(-Infinity);
     for (let i = 0; i < n; i++) {
@@ -226,7 +237,7 @@ export function buildHighways(city) {
     roads.push(road);
   }
   const net = { roads, ST, DECK_T };
-  gradeTerrain(city, net);
+  gradeTerrain(city, net, keepFine);
   net.decks = deckSegments(net);
   registerDecks((x, z, margin) => deckAt(net, x, z, margin) !== null);
   net.deckAt = (x, z) => deckAt(net, x, z, 0);
@@ -237,23 +248,31 @@ export function buildHighways(city) {
 }
 
 // vértices de la malla fina que no se tocan: calles, lotes y lugares de Puerto Nova
+// (se marcan una vez en una máscara de la malla fina; la consulta es una lectura)
 function makeKeepFine(city) {
-  const F = city.world.fine;
+  const F = city.world.fine, keep = new Uint8Array(F.nx * F.nz);
+  const at = (x, z) => [Math.round((x - F.x0) / F.res), Math.round((z - F.z0) / F.res)];
+  const stamp = (cx, cz, R, inside) => {
+    const [i0, j0] = at(cx - R, cz - R), [i1, j1] = at(cx + R, cz + R);
+    for (let j = Math.max(0, j0); j <= Math.min(F.nz - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(F.nx - 1, i1); i++) {
+      if (inside(F.x0 + i * F.res - cx, F.z0 + j * F.res - cz)) keep[j * F.nx + i] = 1;
+    }
+  };
+  for (const l of city.lots) { const r = Math.max(l.w, l.d) / 2 + 4; stamp(l.cx, l.cz, r, (dx, dz) => dx * dx + dz * dz < r * r); }
+  for (const s of city.sites) {
+    const c = Math.cos(s.rot || 0), sn = Math.sin(s.rot || 0), hx = (s.hx || 10) + 6, hz = (s.hz || 10) + 6;
+    stamp(s.cx, s.cz, Math.hypot(hx, hz), (dx, dz) => Math.abs(dx * c - dz * sn) < hx && Math.abs(dx * sn + dz * c) < hz);
+  }
   return (x, z) => {
     if (F.masked && F.masked(x, z)) return true;
-    for (const l of city.lots) if (Math.hypot(l.cx - x, l.cz - z) < Math.max(l.w, l.d) / 2 + 4) return true;
-    for (const s of city.sites) {
-      const px = x - s.cx, pz = z - s.cz, c = Math.cos(s.rot || 0), sn = Math.sin(s.rot || 0);
-      if (Math.abs(px * c - pz * sn) < (s.hx || 10) + 6 && Math.abs(px * sn + pz * c) < (s.hz || 10) + 6) return true;
-    }
-    return false;
+    const [i, j] = at(x, z);
+    return i >= 0 && j >= 0 && i < F.nx && j < F.nz && keep[j * F.nx + i] === 1;
   };
 }
 
 // ---------- nivelación del terreno (corte y relleno con taludes) ----------
-function gradeTerrain(city, net) {
+function gradeTerrain(city, net, keepFine) {
   const W = city.world, F = W.fine, C = W.coarse;
-  const keepFine = makeKeepFine(city);
   const lockF = new Uint8Array(F.nx * F.nz), lockC = new Uint8Array(C.nx * C.nz);
   for (const road of net.roads) {
     const half = road.spec.w / 2 + road.spec.sh;
