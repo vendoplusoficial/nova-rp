@@ -1,7 +1,7 @@
 // Minimapa (gira con la cámara) y mapa completo de Puerto Nova.
 
 import { DISTRICTS, districtAt } from '/shared/districts.js';
-import { playable, isSandy, landDist, lakeDist } from '/shared/terrain.js';
+import { playable, isSandy, landDist, lakeDist, TERRAIN_MIN, TERRAIN_MAX_X, TERRAIN_MAX_Z, WORLD } from '/shared/terrain.js';
 
 const POI_STYLE = {
   park: ['#3ddc97', 'P'], jobcenter: ['#e07a2c', '$'], hospital: ['#e53935', 'H'], police: ['#3b6fd8', 'C'],
@@ -18,34 +18,40 @@ export class Minimap {
     this.ctx = canvas.getContext('2d');
     this.big = bigCanvas;
     this.city = city;
-    this.scale = 0.8; // px por metro en el mapa base
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const line of city.fence) for (const [x, z] of line) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
-    this.X0 = minX - 60; this.Z0 = minZ - 60;
-    this.W = maxX - minX + 120; this.H = maxZ - minZ + 120;
-    this.base = this.renderBase();
+    // dos capas: Puerto Nova en detalle (0.8 px/m, con edificios) y el mundo completo ligero
+    // (0.22 px/m) para las otras regiones y el mapa grande
+    this.layers = {
+      city: this.renderBase({ x0: TERRAIN_MIN, z0: TERRAIN_MIN, x1: TERRAIN_MAX_X, z1: TERRAIN_MAX_Z }, 0.8, 4, true),
+      world: this.renderBase({ x0: WORLD.x0, z0: WORLD.z0, x1: WORLD.x1, z1: WORLD.z1 }, 0.22, 8, false),
+    };
+    this.use(this.layers.city);
     this.zoom = 0.75;
   }
+
+  use(L) { this.base = L.cv; this.X0 = L.X0; this.Z0 = L.Z0; this.scale = L.scale; this.layer = L; }
 
   mx(x) { return (x - this.X0) * this.scale; }
   mz(z) { return (z - this.Z0) * this.scale; }
 
-  // Dibuja una sola vez la ciudad completa en un canvas fuera de pantalla
-  renderBase() {
-    const c = this.city, s = this.scale;
-    const cw = Math.ceil(this.W * s), ch = Math.ceil(this.H * s);
+  // Dibuja una sola vez un área del mapa en un canvas fuera de pantalla
+  renderBase(B, scale, step, detail) {
+    const c = this.city;
+    const L = { X0: B.x0, Z0: B.z0, scale, W: B.x1 - B.x0, H: B.z1 - B.z0 };
+    this.X0 = L.X0; this.Z0 = L.Z0; this.scale = scale;
+    const s = scale;
+    const cw = Math.ceil(L.W * s), ch = Math.ceil(L.H * s);
     const cv = document.createElement('canvas');
     cv.width = cw; cv.height = ch;
+    L.cv = cv;
     const g = cv.getContext('2d');
-    // terreno a baja resolución (cada 4 m) y escalado con suavizado
-    const step = 4;
-    const tw = Math.ceil(this.W / step), th = Math.ceil(this.H / step);
+    // terreno a baja resolución y escalado con suavizado
+    const tw = Math.ceil(L.W / step), th = Math.ceil(L.H / step);
     const low = document.createElement('canvas');
     low.width = tw; low.height = th;
     const lg = low.getContext('2d');
     const img = lg.createImageData(tw, th);
     for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) {
-      const x = this.X0 + i * step, z = this.Z0 + j * step;
+      const x = L.X0 + i * step, z = L.Z0 + j * step;
       const h = c.height(x, z);
       let col;
       if (h < 0.05) col = [38, 92, 128];
@@ -95,9 +101,11 @@ export class Minimap {
       }
     };
     const LOT = { casaHumilde: '#d6b9a4', bodega: '#a9a9a3', fabrica: '#a9a9a3', torre: '#c9d3dd', oficina: '#d5dbe0', casaRural: '#dcc9a8' };
-    for (const l of c.lots) drawParts(l, LOT[l.type] || '#e6e1d8');
-    for (const st of c.sites) drawParts(st, '#f4f1ea');
-    return cv;
+    if (detail) {
+      for (const l of c.lots) drawParts(l, LOT[l.type] || '#e6e1d8');
+      for (const st of c.sites) drawParts(st, '#f4f1ea');
+    }
+    return L;
   }
 
   rect(g, o, hx, hz, fill) {
@@ -114,6 +122,9 @@ export class Minimap {
 
   // yaw = rumbo de la cámara; facing = rumbo del jugador
   draw(px, pz, yaw, facing, others, target, myBike) {
+    const cityL = this.layers.city;
+    const inCity = px > cityL.X0 + 150 && px < cityL.X0 + cityL.W - 150 && pz > cityL.Z0 + 150 && pz < cityL.Z0 + cityL.H - 150;
+    this.use(inCity ? cityL : this.layers.world);
     const g = this.ctx;
     const W = this.canvas.width, H = this.canvas.height, R = W / 2;
     g.save();
@@ -168,6 +179,7 @@ export class Minimap {
   }
 
   drawBig(px, pz, facing, target, others, myBike) {
+    this.use(this.layers.world);
     const cv = this.big;
     const parent = cv.parentElement;
     const legend = parent.querySelector('.map-legend');

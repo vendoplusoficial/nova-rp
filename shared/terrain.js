@@ -1,16 +1,25 @@
-// Terreno de Puerto Nova a partir del diseño del mapa (shared/mapdata.js):
-// tierra firme e islas, playas de arena y costa rocosa, montañas al norte y noroeste, mesetas,
-// presa con lago, río hacia el mar, calzadas sobre el agua y muelles.
+// Terreno del mundo de Nova RP (shared/mapdata.js = Puerto Nova; shared/worldplan.js = las tres regiones):
+// tierra firme e islas, playas de arena y costa rocosa, montañas, mesetas, presa con lago, río,
+// calzadas sobre el agua y muelles.
+// Dos resoluciones: una malla fina de 4 m sobre Puerto Nova (la de siempre) y una malla de 8 m para
+// el resto del mundo. En el borde ambas tienen exactamente las mismas alturas (sin grietas).
 // Determinista: cliente y servidor calculan exactamente el mismo terreno.
 //
 // Ejes: +X = este, +Z = sur. Nivel del mar = 0.
 
-import { WORLD, MAINLAND, ISLANDS, LAKE, RIVER, CAUSEWAYS, PIERS, SANDY, RIDGES, HILLS, PLATEAUS } from './mapdata.js';
+import { MAINLAND, ISLANDS, LAKE, RIVER, CAUSEWAYS, PIERS, SANDY, RIDGES, HILLS, PLATEAUS } from './mapdata.js';
+import { REGIONS, WORLD_PLAN_BOUNDS } from './worldplan.js';
 
 export const SEA_LEVEL = 0;
-export const TERRAIN_RES = 4;                 // metros por celda del mapa de alturas
-export const TERRAIN_MIN = -960, TERRAIN_MAX_X = 960, TERRAIN_MAX_Z = 880;
-export { WORLD };
+export const TERRAIN_RES = 4;                 // metros por celda de la malla fina (Puerto Nova)
+export const TERRAIN_MIN = -960, TERRAIN_MAX_X = 960, TERRAIN_MAX_Z = 896;
+// malla gruesa del mundo completo (8 m), alineada con la fina y con los mosaicos de 64 m
+export const COARSE_RES = 8;
+export const WORLD_MIN_X = -3136, WORLD_MIN_Z = -3712, WORLD_MAX_X = 2752, WORLD_MAX_Z = 1536;
+// zona jugable del mundo (la valla invisible va en la orilla; esto solo limita el mar abierto)
+export const WORLD = { x0: WORLD_PLAN_BOUNDS.x0 + 30, x1: WORLD_PLAN_BOUNDS.x1 - 30, z0: WORLD_PLAN_BOUNDS.z0 + 30, z1: WORLD_PLAN_BOUNDS.z1 - 30 };
+// ¿(x,z) está dentro de la malla fina de Puerto Nova?
+export const inFine = (x, z) => x >= TERRAIN_MIN && x <= TERRAIN_MAX_X && z >= TERRAIN_MIN && z <= TERRAIN_MAX_Z;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -62,20 +71,21 @@ export function pointInPoly(pts, x, z) {
 // distancia con signo a un polígono (+ dentro)
 export function polyDist(pts, x, z) { const d = distToPolyline(pts, x, z, true); return pointInPoly(pts, x, z) ? d : -d; }
 
-// ---------- campos precalculados (malla de 4 m) ----------
-const RES = TERRAIN_RES;
-const GX0 = TERRAIN_MIN, GZ0 = TERRAIN_MIN;
-const NX = Math.round((TERRAIN_MAX_X - TERRAIN_MIN) / RES) + 1;
-const NZ = Math.round((TERRAIN_MAX_Z - TERRAIN_MIN) / RES) + 1;
-let F = null; // { land, dist, lakeD, sandy, hBase }
+// ---------- campos precalculados (tierra, lago, arena y distancias a la orilla) ----------
+// Una "malla de campos" por resolución: la fina (Puerto Nova, 4 m) y la gruesa (mundo, 8 m).
+function makeGrid(x0, z0, x1, z1, res) {
+  return { x0, z0, res, nx: Math.round((x1 - x0) / res) + 1, nz: Math.round((z1 - z0) / res) + 1 };
+}
+const FINE = makeGrid(TERRAIN_MIN, TERRAIN_MIN, TERRAIN_MAX_X, TERRAIN_MAX_Z, TERRAIN_RES);
+const COARSE = makeGrid(WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, COARSE_RES);
 
 // Rellena (por filas) los vértices dentro de un polígono
-function scanFill(mask, pts, val) {
+function scanFill(G, mask, pts, val) {
   let zmin = Infinity, zmax = -Infinity;
   for (const p of pts) { zmin = Math.min(zmin, p[1]); zmax = Math.max(zmax, p[1]); }
-  const j0 = Math.max(0, Math.ceil((zmin - GZ0) / RES)), j1 = Math.min(NZ - 1, Math.floor((zmax - GZ0) / RES));
+  const j0 = Math.max(0, Math.ceil((zmin - G.z0) / G.res)), j1 = Math.min(G.nz - 1, Math.floor((zmax - G.z0) / G.res));
   for (let j = j0; j <= j1; j++) {
-    const z = GZ0 + j * RES;
+    const z = G.z0 + j * G.res;
     const xs = [];
     for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
       const a = pts[k], b = pts[i];
@@ -83,22 +93,23 @@ function scanFill(mask, pts, val) {
     }
     xs.sort((p, q) => p - q);
     for (let q = 0; q + 1 < xs.length; q += 2) {
-      const i0 = Math.max(0, Math.ceil((xs[q] - GX0) / RES)), i1 = Math.min(NX - 1, Math.floor((xs[q + 1] - GX0) / RES));
-      for (let i = i0; i <= i1; i++) mask[j * NX + i] = val;
+      const i0 = Math.max(0, Math.ceil((xs[q] - G.x0) / G.res)), i1 = Math.min(G.nx - 1, Math.floor((xs[q + 1] - G.x0) / G.res));
+      for (let i = i0; i <= i1; i++) mask[j * G.nx + i] = val;
     }
   }
 }
-function stampLine(mask, pts, halfW, val) {
+function stampLine(G, mask, pts, halfW, val) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-  const i0 = Math.max(0, Math.floor((x0 - halfW - GX0) / RES)), i1 = Math.min(NX - 1, Math.ceil((x1 + halfW - GX0) / RES));
-  const j0 = Math.max(0, Math.floor((z0 - halfW - GZ0) / RES)), j1 = Math.min(NZ - 1, Math.ceil((z1 + halfW - GZ0) / RES));
+  const i0 = Math.max(0, Math.floor((x0 - halfW - G.x0) / G.res)), i1 = Math.min(G.nx - 1, Math.ceil((x1 + halfW - G.x0) / G.res));
+  const j0 = Math.max(0, Math.floor((z0 - halfW - G.z0) / G.res)), j1 = Math.min(G.nz - 1, Math.ceil((z1 + halfW - G.z0) / G.res));
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    if (distToPolyline(pts, GX0 + i * RES, GZ0 + j * RES) <= halfW) mask[j * NX + i] = val;
+    if (distToPolyline(pts, G.x0 + i * G.res, G.z0 + j * G.res) <= halfW) mask[j * G.nx + i] = val;
   }
 }
 // Distancia (aprox. euclidiana, chaflán 3-4) de cada vértice al borde de la máscara; + dentro, - fuera
-function signedDistance(mask) {
+function signedDistance(G, mask) {
+  const NX = G.nx, NZ = G.nz, RES = G.res;
   const INF = 1e9;
   const inD = new Float32Array(NX * NZ), outD = new Float32Array(NX * NZ);
   for (let k = 0; k < NX * NZ; k++) { inD[k] = mask[k] ? INF : 0; outD[k] = mask[k] ? 0 : INF; }
@@ -124,38 +135,43 @@ function signedDistance(mask) {
   return out;
 }
 
-function fields() {
-  if (F) return F;
-  const land = new Uint8Array(NX * NZ), lake = new Uint8Array(NX * NZ), sandy = new Uint8Array(NX * NZ);
-  scanFill(land, MAINLAND, 1);
-  for (const is of ISLANDS) scanFill(land, is.pts, 1);
-  for (const c of CAUSEWAYS) stampLine(land, c.pts, c.width / 2, 1);
-  for (const p of PIERS) if (p.h < 5) stampLine(land, p.pts, p.width / 2, 1);
-  stampLine(land, RIVER.pts, RIVER.width / 2, 0);
-  scanFill(lake, LAKE.pts, 1);
-  for (const s of SANDY) scanFill(sandy, s, 1);
-  const dist = signedDistance(land);
-  const lakeD = signedDistance(lake);
-  F = { land, lake, sandy, dist, lakeD };
-  return F;
+// Tierra: Puerto Nova + islas + las tres regiones del plano; calzadas y muelles; el río corta
+function buildFields(G) {
+  const n = G.nx * G.nz;
+  const land = new Uint8Array(n), lake = new Uint8Array(n), sandy = new Uint8Array(n);
+  scanFill(G, land, MAINLAND, 1);
+  for (const r of REGIONS) scanFill(G, land, r.coast, 1);
+  for (const is of ISLANDS) scanFill(G, land, is.pts, 1);
+  for (const c of CAUSEWAYS) stampLine(G, land, c.pts, c.width / 2, 1);
+  for (const p of PIERS) if (p.h < 5) stampLine(G, land, p.pts, p.width / 2, 1);
+  stampLine(G, land, RIVER.pts, RIVER.width / 2, 0);
+  scanFill(G, lake, LAKE.pts, 1);
+  for (const s of SANDY) scanFill(G, sandy, s, 1);
+  return { G, land, lake, sandy, dist: signedDistance(G, land), lakeD: signedDistance(G, lake) };
 }
+let FF = null, FC = null;
+const fineFields = () => FF || (FF = buildFields(FINE));
+const coarseFields = () => FC || (FC = buildFields(COARSE));
+const fieldsAt = (x, z) => (inFine(x, z) ? fineFields() : coarseFields());
 
-function sample(arr, x, z) {
-  const fx = clamp((x - GX0) / RES, 0, NX - 1.001), fz = clamp((z - GZ0) / RES, 0, NZ - 1.001);
+function sample(F, arr, x, z) {
+  const G = F.G;
+  const fx = clamp((x - G.x0) / G.res, 0, G.nx - 1.001), fz = clamp((z - G.z0) / G.res, 0, G.nz - 1.001);
   const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
-  const k = j * NX + i;
-  return (arr[k] * (1 - u) + arr[k + 1] * u) * (1 - v) + (arr[k + NX] * (1 - u) + arr[k + NX + 1] * u) * v;
+  const k = j * G.nx + i;
+  return (arr[k] * (1 - u) + arr[k + 1] * u) * (1 - v) + (arr[k + G.nx] * (1 - u) + arr[k + G.nx + 1] * u) * v;
 }
-function nearest(arr, x, z) {
-  const i = clamp(Math.round((x - GX0) / RES), 0, NX - 1), j = clamp(Math.round((z - GZ0) / RES), 0, NZ - 1);
-  return arr[j * NX + i];
+function nearest(F, arr, x, z) {
+  const G = F.G;
+  const i = clamp(Math.round((x - G.x0) / G.res), 0, G.nx - 1), j = clamp(Math.round((z - G.z0) / G.res), 0, G.nz - 1);
+  return arr[j * G.nx + i];
 }
 
 // Distancia a la orilla del mar (+ tierra, - agua)
-export function landDist(x, z) { return sample(fields().dist, x, z); }
+export function landDist(x, z) { const F = fieldsAt(x, z); return sample(F, F.dist, x, z); }
 // Distancia a la orilla del lago (+ dentro del agua)
-export function lakeDist(x, z) { return sample(fields().lakeD, x, z); }
-export function isSandy(x, z) { return nearest(fields().sandy, x, z) === 1; }
+export function lakeDist(x, z) { const F = fieldsAt(x, z); return sample(F, F.lakeD, x, z); }
+export function isSandy(x, z) { const F = fieldsAt(x, z); return nearest(F, F.sandy, x, z) === 1; }
 export function inWorld(x, z, margin = 0) { return x > WORLD.x0 + margin && x < WORLD.x1 - margin && z > WORLD.z0 + margin && z < WORLD.z1 - margin; }
 
 // Cajas envolventes para descartar rápido las formas lejanas
@@ -168,11 +184,11 @@ for (const p of PIERS) p.bb = bbox(p.pts, p.width / 2 + 4);
 const RIVER_BB = bbox(RIVER.pts, RIVER.width / 2 + 17);
 
 export function baseHeight(x, z) {
-  const f = fields();
-  const d = sample(f.dist, x, z);
+  const f = fieldsAt(x, z);
+  const d = sample(f, f.dist, x, z);
   let h;
   if (d < 0) h = -1.2 - Math.min(9, -d * 0.12);
-  else if (nearest(f.sandy, x, z)) h = 0.25 + 1.5 * smoothstep(0, 45, d) + 1.6 * smoothstep(40, 80, d);   // playa ancha
+  else if (nearest(f, f.sandy, x, z)) h = 0.25 + 1.5 * smoothstep(0, 45, d) + 1.6 * smoothstep(40, 80, d);   // playa ancha
   else h = 0.35 + 2.6 * smoothstep(0, 9, d) + 0.5 * smoothstep(9, 40, d);                               // costa rocosa
   if (d > 0) {
     const inland = smoothstep(20, 120, d);
@@ -198,7 +214,7 @@ export function baseHeight(x, z) {
     }
   }
   // lago de la presa
-  const ld = sample(f.lakeD, x, z);
+  const ld = sample(f, f.lakeD, x, z);
   if (ld > -24) {
     if (ld > 0) h = LAKE.level - 1.4 - Math.min(6, ld * 0.12);
     else h = lerp(LAKE.level + 0.7, Math.max(h, LAKE.level + 0.7), smoothstep(0, 24, -ld));
@@ -223,17 +239,18 @@ export function baseHeight(x, z) {
 
 // ---------- mapa de alturas con aplanado ----------
 export class Heightmap {
-  constructor() {
-    this.res = RES;
-    this.x0 = GX0; this.z0 = GZ0;
-    this.nx = NX; this.nz = NZ;
+  // G = malla (por defecto la fina de Puerto Nova); passes = suavizado tierra adentro
+  constructor(G = FINE, passes = 3) {
+    this.res = G.res;
+    this.x0 = G.x0; this.z0 = G.z0;
+    this.nx = G.nx; this.nz = G.nz;
     this.h = new Float32Array(this.nx * this.nz);
     this.mask = new Uint8Array(this.nx * this.nz); // 1 = celda de calle (no la tocan los lotes)
     for (let j = 0; j < this.nz; j++) {
       const z = this.z0 + j * this.res;
       for (let i = 0; i < this.nx; i++) this.h[j * this.nx + i] = baseHeight(this.x0 + i * this.res, z);
     }
-    this.smoothInland(3);
+    this.smoothInland(passes);
   }
 
   // Suaviza el relieve tierra adentro (quita picos y escalones de 4 m). No toca la costa, el lago,
@@ -372,6 +389,28 @@ export class Heightmap {
   }
 }
 
+// Terreno del mundo completo: malla fina (Puerto Nova, 4 m) + malla gruesa (resto del mundo, 8 m).
+export class WorldTerrain {
+  constructor(fine) {
+    this.fine = fine;
+    this.coarse = new Heightmap(COARSE, 2);
+  }
+  height(x, z) { return inFine(x, z) ? this.fine.height(x, z) : this.coarse.height(x, z); }
+  // malla que dibuja/colisiona un rectángulo (la fina solo si lo contiene completo)
+  gridFor(x0, z0, x1, z1) { return inFine(x0, z0) && inFine(x1, z1) ? this.fine : this.coarse; }
+  // Une las mallas sin grietas: la gruesa copia a la fina dentro de su área y, en el borde de la
+  // fina, los vértices intermedios quedan en línea recta entre los de la gruesa.
+  seam() {
+    const F = this.fine, C = this.coarse, k = Math.round(C.res / F.res);
+    const ci0 = Math.round((F.x0 - C.x0) / C.res), cj0 = Math.round((F.z0 - C.z0) / C.res);
+    const cw = Math.floor((F.nx - 1) / k), ch = Math.floor((F.nz - 1) / k);
+    for (let j = 0; j <= ch; j++) for (let i = 0; i <= cw; i++) C.h[(cj0 + j) * C.nx + ci0 + i] = F.h[j * k * F.nx + i * k];
+    const fix = (idx, a, b) => { F.h[idx] = (F.h[a] + F.h[b]) / 2; };
+    for (let i = 1; i < F.nx - 1; i += k) { fix(i, i - 1, i + 1); const r = (F.nz - 1) * F.nx; fix(r + i, r + i - 1, r + i + 1); }
+    for (let j = 1; j < F.nz - 1; j += k) { const a = j * F.nx; fix(a, a - F.nx, a + F.nx); const b = a + F.nx - 1; fix(b, b - F.nx, b + F.nx); }
+  }
+}
+
 // ¿Está dentro de la zona jugable? (margen en metros hacia adentro). Tierra firme, islas,
 // calzadas y muelles; no el mar, el río ni el lago.
 export function playable(x, z, margin = 0) {
@@ -387,9 +426,10 @@ export function playable(x, z, margin = 0) {
 
 // ---------- contornos (marching squares) ----------
 // Devuelve polilíneas del borde entre f(x,z)=true y false en la malla de 4 m
-function contour(fn, step = RES) {
-  const nx = Math.round((WORLD.x1 - WORLD.x0) / step) + 3, nz = Math.round((WORLD.z1 - WORLD.z0) / step) + 3;
-  const x0 = WORLD.x0 - step, z0 = WORLD.z0 - step;
+// box = área a recorrer; skip = celdas que se omiten (ya las recorrió una pasada más fina)
+function contour(fn, step = TERRAIN_RES, box = WORLD, skip = null) {
+  const nx = Math.round((box.x1 - box.x0) / step) + 3, nz = Math.round((box.z1 - box.z0) / step) + 3;
+  const x0 = box.x0 - step, z0 = box.z0 - step;
   const v = new Uint8Array(nx * nz);
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = fn(x0 + i * step, z0 + j * step) ? 1 : 0;
   const segs = [];
@@ -399,6 +439,7 @@ function contour(fn, step = RES) {
     const a = v[j * nx + i], b = v[j * nx + i + 1], c = v[(j + 1) * nx + i + 1], d = v[(j + 1) * nx + i];
     const code = a | (b << 1) | (c << 2) | (d << 3);
     if (code === 0 || code === 15) continue;
+    if (skip && skip(x0 + (i + 0.5) * step, z0 + (j + 0.5) * step)) continue;
     const T = mid(P(i, j), P(i + 1, j)), Rr = mid(P(i + 1, j), P(i + 1, j + 1)), B = mid(P(i, j + 1), P(i + 1, j + 1)), L = mid(P(i, j), P(i, j + 1));
     const add = (p, q) => segs.push([p, q]);
     switch (code) {
@@ -453,7 +494,14 @@ function simplify(pts, eps) {
 
 let fenceCache = null, coastCache = null;
 // Valla invisible: borde de la zona jugable (orilla del mar, lago, río y límites del mundo)
-export function fenceLines() { return fenceCache || (fenceCache = contour((x, z) => playable(x, z, 0))); }
+// (malla fina de 4 m sobre Puerto Nova y de 8 m en el resto del mundo)
+const FINE_BOX = { x0: TERRAIN_MIN + 8, x1: TERRAIN_MAX_X - 8, z0: TERRAIN_MIN + 8, z1: TERRAIN_MAX_Z - 8 };
+const inFineBox = (x, z) => x > FINE_BOX.x0 && x < FINE_BOX.x1 && z > FINE_BOX.z0 && z < FINE_BOX.z1;
+export function fenceLines() {
+  if (fenceCache) return fenceCache;
+  const fn = (x, z) => playable(x, z, 0);
+  return (fenceCache = [...contour(fn, TERRAIN_RES, FINE_BOX), ...contour(fn, COARSE_RES, WORLD, inFineBox)]);
+}
 // Línea de costa real (para la espuma de las olas)
 export function coastLines() { return coastCache || (coastCache = contour((x, z) => baseHeight(x, z) > 0.05, 8)); }
 export const LAKE_LEVEL = LAKE.level;

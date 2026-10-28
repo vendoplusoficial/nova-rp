@@ -13,7 +13,7 @@
 
 import { Rng, hashInts } from './rng.js';
 import { CITY_SEED } from './constants.js';
-import { Heightmap, playable, SEA_LEVEL, fenceLines, coastLines, landDist, isSandy, lakeDist, pointInPoly, inWorld } from './terrain.js';
+import { Heightmap, WorldTerrain, playable, SEA_LEVEL, fenceLines, coastLines, landDist, isSandy, lakeDist, pointInPoly, inWorld } from './terrain.js';
 import { DISTRICTS, districtAt } from './districts.js';
 import { RoadNet, buildMainRoads, buildLocalRoads, rectContains, segDist, segPointDist } from './roads.js';
 import { buildBlocks, frontages, runAt, rayToPoly, rectInPoly, insetPoly, removeLoops, signedArea } from './blocks.js';
@@ -350,7 +350,11 @@ export function generateCity(seed = CITY_SEED) {
   vegetation(city, net, seed);
   for (const p of city.props) if (p.y === undefined) p.y = hm.height(p.x, p.z);
 
-  // ---------- 7. colisiones y valla invisible ----------
+  // ---------- 7. terreno del resto del mundo, colisiones y valla invisible ----------
+  // malla gruesa (8 m) de las tres regiones, unida sin grietas con la de Puerto Nova
+  city.world = new WorldTerrain(hm);
+  city.world.seam();
+  city.height = (x, z) => city.world.height(x, z);
   buildColliders(city);
   city.fence = fenceLines();
   for (const line of city.fence) {

@@ -15,7 +15,8 @@ const CENTER_OFFSET = HALF + RADIUS; // de los pies al centro de la cápsula
 export class Physics {
   constructor(city) {
     this.city = city;
-    this.hm = city.hm;
+    this.hm = city.hm;                 // malla fina (Puerto Nova): un solo colisionador al inicio
+    this.chunks = new Map();           // resto del mundo: trozos de 128 m que se crean cerca del jugador
     this.grid = new CollisionGrid(city.colliders);
     this.backend = 'simple';
     this.R = null;
@@ -88,7 +89,7 @@ export class Physics {
   verify(R) {
     try {
       const sp = this.city.spawnPoints[0];
-      const h = this.hm.height(sp.x, sp.z);
+      const h = this.city.height(sp.x, sp.z);
       const hit = this.world.castRay(new R.Ray({ x: sp.x, y: h + 20, z: sp.z }, { x: 0, y: -1, z: 0 }), 60, true);
       if (!hit) throw new Error('el rayo de prueba no tocó el terreno');
       const toi = hit.timeOfImpact ?? hit.toi;
@@ -96,6 +97,43 @@ export class Physics {
     } catch (e) {
       if (/desalineado|no tocó/.test(String(e.message))) { this.fallback(e); return; }
       console.info('[física] verificación omitida:', e.message);
+    }
+  }
+
+  // Terreno del resto del mundo (malla gruesa de 8 m): colisionadores por trozos de 128 m alrededor
+  // del jugador; los lejanos se quitan. Dentro de Puerto Nova manda la malla fina.
+  ensureTerrain(x, z) {
+    if (this.backend !== 'rapier') return;
+    const C = 128, ci = Math.floor(x / C), cj = Math.floor(z / C);
+    if (this.lastChunk === ci + ',' + cj) return;
+    this.lastChunk = ci + ',' + cj;
+    const W = this.city.world, F = this.hm;
+    const fx0 = F.x0, fx1 = F.x0 + (F.nx - 1) * F.res, fz0 = F.z0, fz1 = F.z0 + (F.nz - 1) * F.res;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const key = (ci + di) + ',' + (cj + dj);
+      if (this.chunks.has(key)) continue;
+      const x0 = (ci + di) * C, z0 = (cj + dj) * C;
+      if (x0 >= fx0 && x0 + C <= fx1 && z0 >= fz0 && z0 + C <= fz1) { this.chunks.set(key, null); continue; }
+      const G = W.coarse, res = G.res;
+      const i0 = Math.max(0, Math.round((x0 - G.x0) / res)), i1 = Math.min(G.nx - 1, Math.round((x0 + C - G.x0) / res));
+      const j0 = Math.max(0, Math.round((z0 - G.z0) / res)), j1 = Math.min(G.nz - 1, Math.round((z0 + C - G.z0) / res));
+      const cols = i1 - i0 + 1, rows = j1 - j0 + 1;
+      if (cols < 2 || rows < 2) { this.chunks.set(key, null); continue; }
+      const verts = new Float32Array(cols * rows * 3), idx = [];
+      let k = 0;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { verts[k++] = G.x0 + i * res; verts[k++] = G.h[j * G.nx + i]; verts[k++] = G.z0 + j * res; }
+      for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+        const cx = G.x0 + (i0 + i + 0.5) * res, cz = G.z0 + (j0 + j + 0.5) * res;
+        if (cx > fx0 && cx < fx1 && cz > fz0 && cz < fz1) continue;     // celda de Puerto Nova: ya la cubre la malla fina
+        const a = j * cols + i, b = a + 1, c = a + cols + 1, d = a + cols;
+        idx.push(a, c, b, a, d, c);
+      }
+      if (!idx.length) { this.chunks.set(key, null); continue; }
+      try { this.chunks.set(key, this.world.createCollider(this.R.ColliderDesc.trimesh(verts, new Uint32Array(idx)))); } catch (e) { this.fallback(e); return; }
+    }
+    for (const [key, col] of this.chunks) {
+      const [a, b] = key.split(',').map(Number);
+      if (Math.abs(a - ci) > 2 || Math.abs(b - cj) > 2) { if (col) this.world.removeCollider(col, false); this.chunks.delete(key); }
     }
   }
 
@@ -115,11 +153,12 @@ export class Physics {
   move(ch, dx, dy, dz, dt) {
     if (this.backend === 'rapier') {
       try {
+        this.ensureTerrain(ch.x, ch.z);
         this.controller.computeColliderMovement(ch.collider, { x: dx, y: dy, z: dz });
         const m = this.controller.computedMovement();
         ch.x += m.x; ch.y += m.y; ch.z += m.z;
         ch.grounded = this.controller.computedGrounded();
-        const g = this.hm.height(ch.x, ch.z);
+        const g = this.city.height(ch.x, ch.z);
         if (ch.y < g - 0.6) { ch.y = g; ch.grounded = true; } // seguridad: nunca atravesar el suelo
         ch.body.setNextKinematicTranslation({ x: ch.x, y: ch.y + CENTER_OFFSET, z: ch.z });
         this.world.timestep = Math.min(Math.max(dt, 1 / 120), 1 / 20);
@@ -133,7 +172,7 @@ export class Physics {
   }
 
   groundAt(x, z, yFeet) {
-    return Math.max(this.hm.height(x, z), this.grid.groundHeight(x, z, RADIUS, yFeet));
+    return Math.max(this.city.height(x, z), this.grid.groundHeight(x, z, RADIUS, yFeet));
   }
 
   moveSimple(ch, dx, dy, dz) {
@@ -144,7 +183,7 @@ export class Physics {
       const px = x, pz = z;
       x += dx / steps; z += dz / steps;
       // pendientes demasiado empinadas bloquean el paso
-      const rise = this.hm.height(x, z) - this.hm.height(px, pz);
+      const rise = this.city.height(x, z) - this.city.height(px, pz);
       const run = Math.hypot(x - px, z - pz) || 1e-6;
       if (rise / run > 1.15 && rise > 0.05) { x = px; z = pz; break; }
       const r = this.grid.resolveCylinder(x, z, RADIUS, ch.y, CENTER_OFFSET * 2);
@@ -162,7 +201,8 @@ export class Physics {
   }
 
   teleport(ch, x, y, z) {
-    y = Math.max(y, this.hm.height(x, z));
+    y = Math.max(y, this.city.height(x, z));
+    this.ensureTerrain(x, z);
     ch.x = x; ch.y = y; ch.z = z;
     if (this.backend === 'rapier' && ch.body) {
       try {
@@ -181,7 +221,7 @@ export class Physics {
   }
 
   terrainRay(ox, oy, oz, dx, dy, dz, maxDist) {
-    const hm = this.hm;
+    const hm = { height: this.city.height };
     const step = maxDist > 12 ? 2 : 0.75;
     let prev = 0;
     if (oy < hm.height(ox, oz)) return 0;

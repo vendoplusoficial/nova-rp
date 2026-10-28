@@ -8,7 +8,7 @@ import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
 import { renderParts } from './parts.js';
 import { getAtlas, getAtlasNight } from './atlas.js';
-import { TERRAIN_MIN, TERRAIN_MAX_X, TERRAIN_MAX_Z, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
+import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
 import { districtAt } from '/shared/districts.js';
 import { mergeIntervals, freeIntervals } from '/shared/roads.js';
@@ -54,8 +54,9 @@ export class CityRenderer {
     this.matFoliage = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); // hojas de palmera
     this.root = new THREE.Group();
     scene.add(this.root);
-    this.nx = Math.ceil((TERRAIN_MAX_X - TERRAIN_MIN) / TILE);
-    this.nz = Math.ceil((TERRAIN_MAX_Z - TERRAIN_MIN) / TILE);
+    // mosaicos sobre el mundo completo (las tres regiones)
+    this.nx = Math.ceil((WORLD_MAX_X - WORLD_MIN_X) / TILE);
+    this.nz = Math.ceil((WORLD_MAX_Z - WORLD_MIN_Z) / TILE);
     this.tiles = new Map();
     this.queue = [];
     this.frame = 0;
@@ -77,7 +78,7 @@ export class CityRenderer {
   }
 
   tileKey(x, z) {
-    const i = Math.floor((x - TERRAIN_MIN) / TILE), j = Math.floor((z - TERRAIN_MIN) / TILE);
+    const i = Math.floor((x - WORLD_MIN_X) / TILE), j = Math.floor((z - WORLD_MIN_Z) / TILE);
     if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return null;
     return i + ',' + j;
   }
@@ -86,7 +87,9 @@ export class CityRenderer {
     let t = this.tiles.get(key);
     if (!t) {
       const [i, j] = key.split(',').map(Number);
-      t = { key, i, j, x0: TERRAIN_MIN + i * TILE, z0: TERRAIN_MIN + j * TILE, lots: [], sites: [], props: [], pieces: [], caps: [], base: null, detail: null };
+      const x0 = WORLD_MIN_X + i * TILE, z0 = WORLD_MIN_Z + j * TILE;
+      // malla del terreno: la fina de Puerto Nova (4 m) o la gruesa del mundo (8 m)
+      t = { key, i, j, x0, z0, grid: this.city.world.gridFor(x0, z0, x0 + TILE, z0 + TILE), lots: [], sites: [], props: [], pieces: [], caps: [], base: null, detail: null };
       this.tiles.set(key, t);
     }
     return t;
@@ -234,13 +237,13 @@ export class CityRenderer {
     const r = p.r || 0, c = Math.cos(r), s = Math.sin(r);
     for (const lz of L.at) {
       const x = p.x + lz * s, z = p.z + lz * c;
-      const y = this.hm.height(x, z) + 0.2;
+      const y = this.city.height(x, z) + 0.2;
       const n = 12, R = L.r;
       const mid = [x, y, z], col = lin(L.c);
       for (let i = 0; i < n; i++) {
         const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
-        const e0 = [x + Math.sin(a0) * R, this.hm.height(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
-        const e1 = [x + Math.sin(a1) * R, this.hm.height(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
+        const e0 = [x + Math.sin(a0) * R, this.city.height(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
+        const e1 = [x + Math.sin(a1) * R, this.city.height(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
         G.triV(mid, e0, e1, UP, UP, UP, col, BLACK, BLACK);
       }
     }
@@ -248,14 +251,14 @@ export class CityRenderer {
 
   prop(P, p, far = false) {
     const proto = PROTO(p.type, p.c, far, p.v ?? ((Math.round(p.x * 7.3) * 31 + Math.round(p.z * 5.1)) >>> 0));
-    if (proto) P.addProto(proto, p.x, p.y ?? this.hm.height(p.x, p.z), p.z, p.r || 0, p.sc || 1);
+    if (proto) P.addProto(proto, p.x, p.y ?? this.city.height(p.x, p.z), p.z, p.r || 0, p.sc || 1);
   }
 
   // ---------- terreno ----------
   // Malla continua con normal y color POR VÉRTICE: las laderas se ven suaves (sin triángulos
   // sueltos de otro color) y los mosaicos vecinos coinciden exactamente en el borde.
   terrain(P, t, far = false) {
-    const hm = this.hm, st = far ? 2 : 1;
+    const hm = t.grid, st = far ? 2 : 1;
     const i0 = Math.round((t.x0 - hm.x0) / hm.res), j0 = Math.round((t.z0 - hm.z0) / hm.res);
     const n = TILE / hm.res;
     // bajo calles y banquetas el terreno se dibuja más bajo: nunca asoma por el asfalto
@@ -289,7 +292,7 @@ export class CityRenderer {
 
   // Cuánto se baja (solo visualmente) cada vértice del terreno de un mosaico
   lowered(t, i0, j0, n) {
-    const hm = this.hm, net = this.city.net, ln = n + 1;
+    const hm = t.grid, net = this.city.net, ln = n + 1;
     const out = new Float32Array(ln * ln);
     const caps = this.city.caps || [];
     for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
@@ -331,7 +334,7 @@ export class CityRenderer {
   roadPiece(P, pc, far = false) {
     const { seg, s0, s1 } = pc;
     const road = seg.road;
-    const hm = this.hm;
+    const hm = { height: this.city.height };
     const half = road.w / 2;
     const ux = seg.ux, uz = seg.uz, nx = -uz, nz = ux;
     const at = (s, off) => { const x = seg.ax + ux * s + nx * off, z = seg.az + uz * s + nz * off; return [x, hm.height(x, z), z]; };
@@ -429,7 +432,7 @@ export class CityRenderer {
   // Retorno de calle cerrada: disco de asfalto con banqueta y bordillo en el lado del fondo
   capPiece(P, cp, far = false) {
     if (cp.type !== 'street') return;
-    const hm = this.hm, R = cp.R, sw = cp.sw;
+    const hm = { height: this.city.height }, R = cp.R, sw = cp.sw;
     const c = Math.cos(cp.rot), s = Math.sin(cp.rot);
     const W = (lx, lz, dy) => { const x = cp.cx + lx * c + lz * s, z = cp.cz - lx * s + lz * c; return [x, hm.height(x, z) + dy, z]; };
     const n = far ? 10 : 20, lift = 0.03;
@@ -457,7 +460,7 @@ export class CityRenderer {
 
   // ---------- mar ----------
   addWater() {
-    const geo = new THREE.PlaneGeometry(6000, 6000, 1, 1).rotateX(-Math.PI / 2);
+    const geo = new THREE.PlaneGeometry(16000, 16000, 1, 1).rotateX(-Math.PI / 2);
     const mat = new THREE.MeshLambertMaterial({ color: 0x2b86b8, transparent: true, opacity: 0.86, depthWrite: false });
     this.water = new THREE.Mesh(geo, mat);
     this.water.position.y = this.city.seaLevel ?? 0;
