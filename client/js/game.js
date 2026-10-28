@@ -21,6 +21,7 @@ import { Chat } from './ui/chat.js';
 import { Panels } from './ui/panels.js';
 import { applyIcons } from './ui/icons.js';
 import { DeliveryClient } from './jobs/deliveryClient.js';
+import { installDevTeleport } from './dev/teleport.js';   // DEV-TP
 
 export class Game {
   constructor({ settings, audio, session, onLogout, requestFullscreen }) {
@@ -92,6 +93,7 @@ export class Game {
     progress(0.4, 'Conectando al servidor…');
     this.net = new Net();
     this.registerHandlers();
+    installDevTeleport(this);   // DEV-TP
     const welcome = await this.net.connect(this.session.token);
 
     this.applyWelcome(welcome, true);

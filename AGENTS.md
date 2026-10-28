@@ -38,6 +38,12 @@ este repositorio. Describe cómo está hecho el proyecto y las reglas para modif
 - Calles: `resolveDeadEnds` (`shared/roads.js`) prolonga, une o recorta las calles sueltas y `keepConnected` quita lo que no se une al Anillo Periférico. `npm test` verifica que no haya calles sin conexión.
 - Zonas seguras: `city.safeZones` (servidor: `inSafeZone`; cliente: `safeZoneAt`). Si cambias el mapa, sube `MAP_VERSION` para que todos reaparezcan en la Plaza Central.
 
+## Teletransporte de desarrollo (temporal)
+- `npm run dev:tp` (o `NOVA_DEV_TP=1 npm start`) muestra el botón **DEV · Viajar** para ir a Puerto Nova,
+  Ciudad Montañosa o Ciudad Desértica. Apagado por defecto; `NOVA_DEV_USERS=nombre1,nombre2` lo limita a esas cuentas.
+- El servidor elige el punto seguro (`server/devTeleport.js`); el cliente solo pide (`client/js/dev/teleport.js`).
+- Para quitarlo: borra esos dos archivos, las líneas marcadas `DEV-TP`, el script `dev:tp` y esta sección.
+
 ## Reglas
 1. **Prioridad absoluta: controles fluidos y 30 FPS estables en celulares de gama media.**
    No añadir sombras dinámicas, post-procesado, texturas grandes ni modelos pesados.

@@ -12,7 +12,9 @@ import { World } from '../server/game.js';
 import { Database } from '../server/db.js';
 import { ANIM } from '../shared/constants.js';
 import { CollisionGrid } from '../shared/collision.js';
-import { playable } from '../shared/terrain.js';
+import { playable, regionAt } from '../shared/terrain.js';
+import { CITIES } from '../shared/worldplan.js';
+import { findSafeSpot } from '../server/devTeleport.js';   // DEV-TP (y el bloque de pruebas marcado)
 
 // Ruta caminable (A* en rejilla de 3 m) que esquiva edificios y objetos: así los bots viajan como un jugador
 function findPath(from, to) {
@@ -292,6 +294,18 @@ async function unitTests() {
   ok(p1.user.profile.health === 70 && !p1.user.profile.inv.pan, 'usar sándwich cura 20 y se consume');
   world.onUse(p1, { item: 'pan' });
   ok(p1.user.profile.health === 70, 'no se puede usar un objeto que no tienes');
+
+  // Teletransporte de desarrollo (DEV-TP): apagado por defecto y con destinos seguros en las 3 ciudades
+  ok(!world.devTp.enabled && !p1.ws.sent.some((m) => m.t === 'dev'), 'teletransporte de desarrollo desactivado por defecto');
+  const x0 = p1.x;
+  world.handle(p1, { t: 'dev_tp', to: 'montana' });
+  ok(p1.x === x0, 'un jugador normal no puede teletransportarse');
+  for (const c of CITIES) {
+    const s = findSafeSpot(world, ...(c.existing ? [city.spawnPoints[0].x, city.spawnPoints[0].z] : c.center), c.region);
+    const g = s && city.height(s.x, s.z);
+    ok(s && regionAt(s.x, s.z) === c.region && playable(s.x, s.z, 1) && s.y >= g && s.y - g < 1 && !world.grid.pointInside(s.x, g + 1, s.z),
+      `punto de teletransporte seguro en ${c.name}${s ? ` (${s.x.toFixed(0)}, ${s.z.toFixed(0)})` : ''}`);
+  }
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

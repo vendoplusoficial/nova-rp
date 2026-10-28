@@ -9,6 +9,7 @@ import { NET, LIMITS, COMBAT, ANIM, ITEMS, VEHICLES, MOVE, MAP_VERSION } from '.
 import { hashString } from '../shared/rng.js';
 import { DeliveryJob } from './jobs/delivery.js';
 import { CONFIG } from './config.js';
+import { DevTeleport } from './devTeleport.js';   // DEV-TP
 
 const SHIRTS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#fdd835', '#6d4c41', '#3949ab', '#d81b60', '#00897b', '#5e35b1'];
 const VEH_CODE = { bike: 1 };
@@ -26,6 +27,7 @@ export class World {
     this.nextId = 1;
     this.nextVehId = 1;
     this.jobs = { delivery: new DeliveryJob(this.city) };
+    this.devTp = new DevTeleport(this);   // DEV-TP
     this.lastSave = Date.now();
     this.tickTimer = setInterval(() => this.tick(), 1000 / NET.SERVER_SNAPSHOT_HZ);
   }
@@ -107,6 +109,7 @@ export class World {
       vehicles: [...this.vehicles.values()].map((v) => this.vehPublic(v)),
       stats: prof.stats,
     });
+    this.devTp.onJoin(p);   // DEV-TP
     this.broadcast({ t: 'pj', id, name: p.name, color: p.color }, p);
     for (const v of restored) this.broadcast({ t: 'vadd', v: this.vehPublic(v) }, p);
     this.systemChat(`${p.name} se conectó.`);
@@ -158,6 +161,7 @@ export class World {
       case 'shoot': return this.onShoot(p, m);
       case 'use': return this.onUse(p, m);
       case 'respawn_req': return null;
+      case 'dev_tp': return this.devTp.onTeleport(p, m);   // DEV-TP
       default: return null;
     }
   }
