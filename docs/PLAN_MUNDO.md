@@ -81,6 +81,10 @@ gasolineras, y recorridos con el colisionador del vehículo.
 2. ~~Geografía~~: costas de las tres regiones, montañas (cordilleras, cañones), lagos, río, playas,
    desierto y vegetación natural por región (`shared/vegetation.js`).
 3. Red vial: autopistas, puentes con soportes y barandal, periféricos, caminos; validación física.
+   - 3a (hecho): A1–A4, C1 y los periféricos de las dos ciudades nuevas, con puentes (tablero, pilas,
+     barandal y faroles). Las salidas de Puerto Nova se recalcularon para no cruzar lotes, la presa,
+     el club de golf ni el aeropuerto: A1 sale del Anillo al poniente; A2 y A4 de la Av. del Aeropuerto.
+   - 3b: caminos secundarios y de terracería a pueblos y lugares, túnel de la Ruta de la Sierra.
 4. Urbanismo: barrios y manzanas de las dos ciudades nuevas y de los pueblos.
 5. Construcción: edificios con arquitectura propia por región (montaña / desierto).
 6. Decoración: vegetación por región, señales, mobiliario.

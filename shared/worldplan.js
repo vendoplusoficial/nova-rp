@@ -121,7 +121,7 @@ export const HIGHWAYS_PLAN = [
   { id: 'A4', name: 'Autopista del Oriente', cls: 'autopista', from: 'costera', to: 'desierto',
     pts: [P(1165, 315), ...WL([[880, 735], [940, 700], [1000, 660], [1010, 620], [982, 592], [1010, 525], [1035, 472], [1040, 420], [1000, 415]])], bridge: [5, 7] },
   { id: 'C1', name: 'Carretera de la Hidroeléctrica', cls: 'carretera', from: 'montana', to: 'desierto',
-    pts: WL([[424, 330], [520, 330], [585, 325], [594, 338], [680, 362], [765, 392], [845, 400]]), bridge: [3, 5] },
+    pts: WL([[424, 330], [520, 330], [590, 332], [680, 362], [765, 392], [845, 400]]), bridge: [2, 4] },
 ];
 // periféricos (anillos cerrados alrededor de cada ciudad nueva; el de Puerto Nova ya existe)
 export const RINGS_PLAN = [

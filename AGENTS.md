@@ -37,6 +37,10 @@ este repositorio. Describe cómo está hecho el proyecto y las reglas para modif
 - Personaje: `SkinnedMesh` suave construido en `client/js/entities/humanMesh.js` (secciones elípticas con pesos en codos y rodillas), con animación procedural en `character.js`.
 - Texturas: un solo atlas pintado por código (`client/js/world/atlas.js`) para ventanas, puertas y fachadas. Las fachadas usan `f:` en las piezas `box` (`glassBlue`, `apt`, `hotel`, `officePunch`...) y se dibujan en `parts.js`.
 - Calles: `resolveDeadEnds` (`shared/roads.js`) prolonga, une o recorta las calles sueltas y `keepConnected` quita lo que no se une al Anillo Periférico. `npm test` verifica que no haya calles sin conexión.
+- Red vial entre regiones: `shared/highways.js` (trazo con radio mínimo, rasante con pendiente máxima, nivelación
+  del terreno, puentes que se pueden pisar: `city.surface` y `playable` los incluyen). Las salidas de Puerto Nova
+  se buscan con `shared/routing.js` (A* que esquiva lotes, sitios y calles). Dibujo en `client/js/world/highwayRenderer.js`.
+  `npm test` incluye `tools/test-roads.js` (pendientes, curvas, cruces, colisiones y suelo continuo en cada vía).
 - Zonas seguras: `city.safeZones` (servidor: `inSafeZone`; cliente: `safeZoneAt`). Si cambias el mapa, sube `MAP_VERSION` para que todos reaparezcan en la Plaza Central.
 
 ## Teletransporte de desarrollo (temporal)

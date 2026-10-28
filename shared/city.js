@@ -22,6 +22,7 @@ import { SITE_BUILDERS as BASE_BUILDERS } from './landmarks.js';
 import { EXTRA_BUILDERS } from './landmarksExtra.js';
 import * as B from './buildings.js';
 import { regionVegetation } from './vegetation.js';
+import { buildHighways, highwayColliders, bridgeLamps, roadDistance } from './highways.js';
 
 export { DISTRICTS, districtAt };
 const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
@@ -356,15 +357,36 @@ export function generateCity(seed = CITY_SEED) {
   city.world = new WorldTerrain(hm);
   city.world.seam();
   city.height = (x, z) => city.world.height(x, z);
-  city.wildTrees = regionVegetation(city, seed);   // bosques, campo y desierto de las regiones nuevas
+  // red vial entre regiones (nivela el terreno y registra los puentes) y vegetación de las regiones nuevas
+  city.highways = buildHighways(city);
+  const onRoad = roadDistance(city.highways);
+  const NATURAL = new Set(['pine', 'oak', 'round', 'bush', 'rock', 'palm', 'laurel']);
+  // nada estorba en la vía: árboles cerca y, en la salida de Puerto Nova, también el mobiliario
+  city.props = city.props.filter((p) => !(NATURAL.has(p.type) ? onRoad(p.x, p.z) < 3 : onRoad(p.x, p.z) < 1));
+  for (const p of city.props) if (NATURAL.has(p.type) && inFine(p.x, p.z)) p.y = city.height(p.x, p.z);   // terreno nivelado
+  city.props.push(...bridgeLamps(city.highways));
+  city.wildTrees = regionVegetation(city, seed, onRoad);   // bosques, campo y desierto de las regiones nuevas
+  city.surface = (x, z, y) => {   // suelo pisable: terreno o tablero de puente (si vienes de arriba)
+    const g = city.height(x, z), d = city.highways.deckAt(x, z);
+    return d !== null && (y === undefined || y > d - 2) ? Math.max(g, d) : g;
+  };
   buildColliders(city);
+  city.colliders.push(...highwayColliders(city.highways));
   city.fence = fenceLines();
   for (const line of city.fence) {
     for (let i = 0; i < line.length - 1; i++) {
-      const a = line[i], b = line[i + 1];
-      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (L < 0.3) continue;
-      city.colliders.push({ cx: (a[0] + b[0]) / 2, cz: (a[1] + b[1]) / 2, hx: L / 2 + 0.4, hz: 0.8, rot: Math.atan2(-(b[1] - a[1]), b[0] - a[0]), minY: -20, maxY: 160, fence: 1 });
+      const a0 = line[i], b0 = line[i + 1];
+      const L0 = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]);
+      if (L0 < 0.3) continue;
+      // en trozos de 8 m: donde un puente sale de tierra no hay valla
+      const near = city.highways.deckNear((a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2, L0 / 2 + 8);
+      const parts = near ? Math.ceil(L0 / 8) : 1;
+      for (let k = 0; k < parts; k++) {
+        const a = [a0[0] + ((b0[0] - a0[0]) * k) / parts, a0[1] + ((b0[1] - a0[1]) * k) / parts], b = [a0[0] + ((b0[0] - a0[0]) * (k + 1)) / parts, a0[1] + ((b0[1] - a0[1]) * (k + 1)) / parts];
+        const L = L0 / parts;
+        if (near && city.highways.deckNear((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 6)) continue;
+        city.colliders.push({ cx: (a[0] + b[0]) / 2, cz: (a[1] + b[1]) / 2, hx: L / 2 + 0.4, hz: 0.8, rot: Math.atan2(-(b[1] - a[1]), b[0] - a[0]), minY: -20, maxY: 160, fence: 1 });
+      }
     }
   }
   city.coast = coastLines();

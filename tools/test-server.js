@@ -129,7 +129,7 @@ async function main() {
   let srvOut = '';
   srv.stdout.on('data', (d) => { srvOut += d; });
   srv.stderr.on('data', (d) => { srvOut += d; });
-  for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/status'); break; } catch { await sleep(100); } }
+  for (let i = 0; i < 200; i++) { try { await fetch(BASE + '/api/status'); break; } catch { await sleep(100); } }
 
   try {
     console.log('\n[1] Cuentas');

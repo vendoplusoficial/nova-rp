@@ -92,6 +92,18 @@ export class Minimap {
         g.stroke();
       }
     }
+    // autopistas, carreteras y periféricos entre regiones (los puentes, un poco más claros)
+    const HW = { autopista: '#f0b45a', periferico: '#f3d98f', carretera: '#ecebe6', secundaria: '#ecebe6', terraceria: '#c9b48f' };
+    for (const pass of [0, 1]) {
+      for (const r of c.highways?.roads || []) {
+        g.strokeStyle = pass === 0 ? 'rgba(0,0,0,0.3)' : HW[r.cls];
+        g.lineWidth = Math.max(pass === 0 ? 3 : 2, (pass === 0 ? r.spec.w + 3 : r.spec.w) * s);
+        g.beginPath();
+        r.pts.forEach(([x, z], i) => (i ? g.lineTo(this.mx(x), this.mz(z)) : g.moveTo(this.mx(x), this.mz(z))));
+        if (r.closed) g.closePath();
+        g.stroke();
+      }
+    }
     // edificios
     const drawParts = (o, fill) => {
       for (const p of o.parts) {

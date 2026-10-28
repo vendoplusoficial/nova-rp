@@ -178,7 +178,7 @@ export class World {
     const cap = maxSpeed * LIMITS.MOVE_BUDGET_SECONDS + 3;
     p.budget = Math.min(p.budget + maxSpeed * dt, cap);
     const d = Math.hypot(x - p.x, z - p.z);
-    const ground = this.city.height(x, z);
+    const ground = this.city.surface(x, z, y);   // terreno o tablero de puente
     const outside = !playable(x, z, -1.5) || y < ground - 2.5 || y > ground + 14;
     const insideWall = this.grid.pointInside(x, y + 1.0, z);
     if (d > p.budget || outside || insideWall) {
@@ -247,7 +247,7 @@ export class World {
     for (let k = 0; k < 12 && !spot; k++) {
       const a = p.ry + Math.PI / 2 + k * (Math.PI / 6);
       const sx = p.x + Math.sin(a) * 1.8, sz = p.z + Math.cos(a) * 1.8;
-      const sy = this.city.height(sx, sz);
+      const sy = this.city.surface(sx, sz, p.y);
       if (!playable(sx, sz, 0.5) || Math.abs(sy - p.y) > 1.2) continue;
       const r = this.grid.resolveCylinder(sx, sz, 0.6, sy, 1.2);
       if (!r.hit) spot = { x: sx, y: sy, z: sz };

@@ -64,7 +64,7 @@ export class Game {
     this.markers = new Markers(this.scene, (x, z) => this.city.height(x, z));
     const jc = this.city.pois.jobcenter;
     this.markers.addStatic(jc.x, jc.z, 0xe07a2c);
-    this.remotes = new RemotePlayers(this.scene, (x, z) => this.city.height(x, z));
+    this.remotes = new RemotePlayers(this.scene, (x, z) => this.city.surface(x, z));
     this.vehicles = new Vehicles(this.scene);
     this.delivery = new DeliveryClient(this);
 

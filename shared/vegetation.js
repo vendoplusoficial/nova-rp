@@ -7,16 +7,16 @@
 
 import { hashInts } from './rng.js';
 import { playable, inFine, fbm, landDist, regionAt, planWaterAt, lakeShape, distToPolyline, polyDist, WORLD } from './terrain.js';
-import { CITIES, TOWNS, HIGHWAYS_PLAN, RINGS_PLAN, ROADS_PLAN, LAKES_PLAN } from './worldplan.js';
+import { CITIES, TOWNS, ROADS_PLAN, LAKES_PLAN } from './worldplan.js';
 
 const STEP = 12;                 // rejilla de muestreo (m)
-const ROAD_CLEAR = 16;           // distancia libre a cada lado de las carreteras del plano
+const ROAD_CLEAR = 16;           // distancia libre a cada lado de los caminos del plano aún sin construir
 const TOWN_CLEAR = { pueblo: 170, rancho: 90 };
 
 // índice espacial de los tramos de carretera del plano (celdas de 128 m)
 function roadIndex() {
   const C = 128, cells = new Map();
-  const lines = [...HIGHWAYS_PLAN, ...RINGS_PLAN.map((r) => ({ ...r, closed: true })), ...ROADS_PLAN];
+  const lines = ROADS_PLAN;
   for (const r of lines) {
     const pts = r.closed ? [...r.pts, r.pts[0]] : r.pts;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -47,7 +47,8 @@ function urbanTest() {
   return (x, z) => polys.some((p) => polyDist(p, x, z) > -25) || towns.some((t) => Math.hypot(x - t.x, z - t.z) < t.r);
 }
 
-export function regionVegetation(city, seed) {
+// onRoad(x,z): distancia a la orilla de las vías ya construidas (highways.js)
+export function regionVegetation(city, seed, onRoad = () => Infinity) {
   const roadDist = roadIndex(), urban = urbanTest();
   const oasis = LAKES_PLAN.filter((l) => l.region === 'desierto');
   const H = city.height;
@@ -62,7 +63,7 @@ export function regionVegetation(city, seed) {
       if (!reg || !playable(x, z, 3) || planWaterAt(x, z, 6)) continue;
       const y = H(x, z);
       if (y < 1.4 || landDist(x, z) < 8) continue;
-      if (roadDist(x, z) < ROAD_CLEAR || urban(x, z)) continue;
+      if (onRoad(x, z) < 5 || roadDist(x, z) < ROAD_CLEAR || urban(x, z)) continue;
       // pendiente (en 4 m): en los riscos no crecen árboles
       const slope = Math.max(Math.abs(H(x + 4, z) - H(x - 4, z)), Math.abs(H(x, z + 4) - H(x, z - 4))) / 8;
       if (slope > 0.85) continue;

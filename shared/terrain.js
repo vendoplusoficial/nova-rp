@@ -580,7 +580,15 @@ export class WorldTerrain {
 
 // ¿Está dentro de la zona jugable? (margen en metros hacia adentro). Tierra firme, islas,
 // calzadas y muelles; no el mar, el río ni el lago.
+// Puentes: la red vial registra aquí cómo saber si (x,z) está sobre un tablero (se puede pisar sobre el agua)
+let deckTest = null;
+export function registerDecks(fn) { deckTest = fn; }
 export function playable(x, z, margin = 0) {
+  if (deckTest && deckTest(x, z, margin)) return inWorld(x, z, 4 + margin);
+  return playableGround(x, z, margin);
+}
+// Solo tierra firme (sin puentes)
+export function playableGround(x, z, margin = 0) {
   if (!inWorld(x, z, 4 + margin)) return false;
   if (landDist(x, z) < 1.2 + margin) return false;
   if (!inFine(x, z) && planWaterAt(x, z, 1.2 + margin)) return false;
@@ -667,7 +675,7 @@ const FINE_BOX = { x0: TERRAIN_MIN + 8, x1: TERRAIN_MAX_X - 8, z0: TERRAIN_MIN +
 const inFineBox = (x, z) => x > FINE_BOX.x0 && x < FINE_BOX.x1 && z > FINE_BOX.z0 && z < FINE_BOX.z1;
 export function fenceLines() {
   if (fenceCache) return fenceCache;
-  const fn = (x, z) => playable(x, z, 0);
+  const fn = (x, z) => playableGround(x, z, 0);
   return (fenceCache = [...contour(fn, TERRAIN_RES, FINE_BOX), ...contour(fn, COARSE_RES, WORLD, inFineBox)]);
 }
 // Línea de costa real (para la espuma de las olas)

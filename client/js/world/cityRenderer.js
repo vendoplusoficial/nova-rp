@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GeoBuilder, shade, lin, mixHex } from './geometry.js';
 import { PROTO, FAR_SKIP } from './props.js';
+import { drawHighwayPiece, drawPier } from './highwayRenderer.js';
 import { renderParts } from './parts.js';
 import { getAtlas, getAtlasNight } from './atlas.js';
 import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, regionAt, lakeShape, lakeLevel, riverAt, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
@@ -101,7 +102,7 @@ export class CityRenderer {
       const [i, j] = key.split(',').map(Number);
       const x0 = WORLD_MIN_X + i * TILE, z0 = WORLD_MIN_Z + j * TILE;
       // malla del terreno: la fina de Puerto Nova (4 m) o la gruesa del mundo (8 m)
-      t = { key, i, j, x0, z0, grid: this.city.world.gridFor(x0, z0, x0 + TILE, z0 + TILE), lots: [], sites: [], props: [], pieces: [], caps: [], base: null, detail: null };
+      t = { key, i, j, x0, z0, grid: this.city.world.gridFor(x0, z0, x0 + TILE, z0 + TILE), lots: [], sites: [], props: [], pieces: [], caps: [], hw: [], piers: [], base: null, detail: null };
       this.tiles.set(key, t);
     }
     return t;
@@ -115,6 +116,8 @@ export class CityRenderer {
     for (const s of this.city.sites) add(s.cx, s.cz, 'sites', s);
     for (const p of this.city.props) add(p.x, p.z, 'props', p);
     for (const cp of this.city.caps || []) add(cp.cx, cp.cz, 'caps', cp);
+    for (const pc of this.city.highways?.pieces || []) add(pc.cx, pc.cz, 'hw', pc);
+    for (const pr of this.city.highways?.piers || []) add(pr.x, pr.z, 'piers', pr);
     const net = this.city.net;
     // en los quiebres de una calle las orillas se cortan a inglete: el lado interior se acorta y el
     // exterior se alarga lo justo para que asfalto y banqueta sigan la curva sin dientes ni huecos
@@ -215,6 +218,8 @@ export class CityRenderer {
       const W = new GeoBuilder(true);
       this.terrain(P, t, far);
       for (const pc of t.pieces) this.roadPiece(P, pc, far);
+      for (const pc of t.hw) drawHighwayPiece(P, this.city, pc, far);
+      for (const pr of t.piers) drawPier(P, pr, far);
       for (const l of t.lots) renderParts(P, W, l, l.parts, false, null, far, T);
       for (const s of t.sites) renderParts(P, W, s, s.parts, false, null, far, T);
       for (const cp of t.caps) { this.capPiece(P, cp, far); renderParts(P, W, cp, cp.parts, false, null, far, T); }
@@ -249,13 +254,14 @@ export class CityRenderer {
     const r = p.r || 0, c = Math.cos(r), s = Math.sin(r);
     for (const lz of L.at) {
       const x = p.x + lz * s, z = p.z + lz * c;
-      const y = this.city.height(x, z) + 0.2;
+      const ground = p.deck ? () => p.y - 1.0 : (gx, gz) => this.city.height(gx, gz);   // en los puentes: el tablero
+      const y = ground(x, z) + 0.2;
       const n = 12, R = L.r;
       const mid = [x, y, z], col = lin(L.c);
       for (let i = 0; i < n; i++) {
         const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
-        const e0 = [x + Math.sin(a0) * R, this.city.height(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
-        const e1 = [x + Math.sin(a1) * R, this.city.height(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
+        const e0 = [x + Math.sin(a0) * R, ground(x + Math.sin(a0) * R, z + Math.cos(a0) * R) + 0.2, z + Math.cos(a0) * R];
+        const e1 = [x + Math.sin(a1) * R, ground(x + Math.sin(a1) * R, z + Math.cos(a1) * R) + 0.2, z + Math.cos(a1) * R];
         G.triV(mid, e0, e1, UP, UP, UP, col, BLACK, BLACK);
       }
     }

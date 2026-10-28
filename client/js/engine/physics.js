@@ -33,7 +33,10 @@ export class Physics {
       this.world = new R.World({ x: 0, y: -9.81, z: 0 });
       onStatus?.('Creando el terreno...');
       this.world.createCollider(this.terrainCollider(R));
+      const decks = this.deckCollider(R);
+      if (decks) this.world.createCollider(decks);
       for (const b of this.city.colliders) {
+        if (b.deck) continue;   // los tableros de los puentes van en una malla exacta (rampas sin escalones)
         const hy = (b.maxY - b.minY) / 2;
         if (b.hx <= 0 || b.hz <= 0 || hy <= 0) continue;
         const rot = b.rot || 0;
@@ -83,6 +86,25 @@ export class Physics {
       idx[k++] = a; idx[k++] = d; idx[k++] = c;
     }
     return R.ColliderDesc.trimesh(verts, idx);
+  }
+
+  // Superficie de los tableros de los puentes (red vial entre regiones)
+  deckCollider(R) {
+    const verts = [], idx = [];
+    for (const road of this.city.highways?.roads || []) {
+      const n = road.pts.length, m = road.closed ? n : n - 1, hw = road.spec.w / 2 + 0.9;
+      for (let i = 0; i < m; i++) {
+        const j = (i + 1) % n;
+        if (!road.deck[i] || !road.deck[j]) continue;
+        const base = verts.length / 3;
+        for (const k of [i, j]) {
+          const [x, z] = road.pts[k], [ux, uz] = road.tan[k];
+          verts.push(x + uz * hw, road.y[k], z - ux * hw, x - uz * hw, road.y[k], z + ux * hw);
+        }
+        idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
+      }
+    }
+    return idx.length ? R.ColliderDesc.trimesh(new Float32Array(verts), new Uint32Array(idx)) : null;
   }
 
   // Comprueba con un rayo que el terreno quedó donde debe; si no, usa la física de respaldo

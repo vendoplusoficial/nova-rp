@@ -5,7 +5,7 @@ export const GAME_NAME = 'NOVA RP';
 export const CITY_NAME = 'Puerto Nova';
 export const CITY_SEED = 20261026;
 // Sube este número cuando cambie el mapa: los jugadores vuelven a aparecer en la Plaza Central
-export const MAP_VERSION = 5;
+export const MAP_VERSION = 6;
 
 // Ciclo de horario: un día de juego dura DAY_MINUTES minutos reales. La hora sale del reloj del
 // servidor, así todos los jugadores ven la misma hora (madrugada, mañana, día, tarde, tarde-noche, noche).
