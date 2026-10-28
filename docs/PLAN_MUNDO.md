@@ -86,7 +86,8 @@ gasolineras, y recorridos con el colisionador del vehículo.
      el club de golf ni el aeropuerto: A1 sale del Anillo al poniente; A2 y A4 de la Av. del Aeropuerto.
    - 3b (hecho): 14 caminos secundarios y de terracería a pueblos y lugares, con enlaces reales (la
      Carretera Pueblo Rural sale de la A4 y vuelve a ella). Validación: todo cruce a la misma altura.
-   - 3c: túnel de la Ruta de la Sierra.
+   - 3c (hecho): túnel de ~370 m de la Ruta de la Sierra bajo la cumbre (hasta ~180 m), con portales de
+     concreto, bóveda iluminada, piso y muros con colisión; el terreno se abre solo en las bocas.
 4. Urbanismo: barrios y manzanas de las dos ciudades nuevas y de los pueblos.
 5. Construcción: edificios con arquitectura propia por región (montaña / desierto).
 6. Decoración: vegetación por región, señales, mobiliario.

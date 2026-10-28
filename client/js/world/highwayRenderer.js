@@ -3,6 +3,7 @@
 // mosaico, como las calles de Puerto Nova.
 
 import { inFine } from '/shared/terrain.js';
+import { glow } from './geometry.js';
 
 const CONCRETE = 0xa7a29a, PARAPET = 0xc9c4ba, PIER = 0x9c978f, GRAVEL = 0x8b8577, DIRT_EDGE = 0x8d7a60;
 const LINE_W = 0xe9e9e4, LINE_Y = 0xe8c547;
@@ -18,7 +19,7 @@ export function drawHighwayPiece(P, city, pc, far) {
     const k = I(i), [x0, z0] = road.pts[k], [ux, uz] = road.tan[k];
     const x = x0 - uz * off, z = z0 + ux * off;
     // en Puerto Nova el terreno junto a las calles no se nivela: un poco más de altura para que no asome
-    const y = road.deck[k] ? road.y[k] : city.height(x, z) + (inFine(x, z) ? LIFT_PN : LIFT);
+    const y = road.deck[k] ? road.y[k] : road.tunnel[k] ? road.y[k] + 0.02 : city.height(x, z) + (inFine(x, z) ? LIFT_PN : LIFT);
     return [x, y, z];
   };
   const idx = [];
@@ -37,6 +38,42 @@ export function drawHighwayPiece(P, city, pc, far) {
   }
   if (!far) marks(P, road, pc, at, hw);
   bridge(P, road, pc, far, hw);
+  tunnel(P, city, road, pc, far, hw);
+}
+
+// túnel: muros, bóveda con lámparas y portales de concreto
+const TUNNEL_WALL = 0xb9b3a8, TUNNEL_H = 6.5;
+function tunnel(P, city, road, pc, far, hw) {
+  const n = road.pts.length;
+  const W = hw + 0.6;
+  const Q = (k, off, dy) => { const [x, z] = road.pts[k], [ux, uz] = road.tan[k]; return [x - uz * off, road.y[k] + dy, z + ux * off]; };
+  for (let i = pc.i0; i < Math.min(pc.i1, n - 1); i++) {
+    const a = i, b = i + 1;
+    if (!road.tunnel[a] || !road.tunnel[b]) continue;
+    const [ux, uz] = road.tan[a];
+    for (const s of [1, -1]) {
+      P.quad(Q(a, s * W, 0), Q(b, s * W, 0), Q(b, s * W, TUNNEL_H - 1), Q(a, s * W, TUNNEL_H - 1), [uz * s, 0, -ux * s], TUNNEL_WALL);
+      // chaflán entre muro y bóveda
+      P.quad(Q(a, s * W, TUNNEL_H - 1), Q(b, s * W, TUNNEL_H - 1), Q(b, s * (W - 1.2), TUNNEL_H), Q(a, s * (W - 1.2), TUNNEL_H), [uz * s, -1, -ux * s], TUNNEL_WALL);
+    }
+    P.quad(Q(a, W - 1.2, TUNNEL_H), Q(b, W - 1.2, TUNNEL_H), Q(b, -(W - 1.2), TUNNEL_H), Q(a, -(W - 1.2), TUNNEL_H), [0, -1, 0], 0x9d978c);
+    if (!far && i % 3 === 0) P.quad(Q(a, 0.4, TUNNEL_H - 0.02), Q(a, -0.4, TUNNEL_H - 0.02), Q(a + 1, -0.4, TUNNEL_H - 0.02), Q(a + 1, 0.4, TUNNEL_H - 0.02), [0, -1, 0], glow(0xffe7b0, 2.2));
+    // techo de concreto por fuera donde no hay roca encima (junto a los portales)
+    const [xa, za] = road.pts[a], [xb, zb] = road.pts[b], top = TUNNEL_H + 1.56;   // apenas sobre la losa de roca
+    if (city.height(xa, za) < road.y[a] + top - 0.2 || city.height(xb, zb) < road.y[b] + top - 0.2) {
+      P.quad(Q(a, W + 1, top), Q(b, W + 1, top), Q(b, -(W + 1), top), Q(a, -(W + 1), top), [0, 1, 0], 0x9a948a);
+      for (const s of [1, -1]) P.quad(Q(a, s * (W + 1), top), Q(b, s * (W + 1), top), Q(b, s * (W + 1), TUNNEL_H - 1), Q(a, s * (W + 1), TUNNEL_H - 1), [-uz * s, 0, ux * s], 0x8f897f);
+    }
+  }
+  // portales
+  for (let i = Math.max(1, pc.i0); i <= Math.min(pc.i1, n - 1); i++) {
+    if (road.tunnel[i] === road.tunnel[i - 1]) continue;
+    const k = road.tunnel[i] ? i : i - 1, [x, z] = road.pts[k], [ux, uz] = road.tan[k], y = road.y[k];
+    const rot = Math.atan2(ux, uz);
+    for (const s of [1, -1]) P.boxR(x - uz * s * (W + 7), y + (TUNNEL_H + 2) / 2 - 1, z + ux * s * (W + 7), 14, TUNNEL_H + 4, 1.4, rot, 0xa8a297);   // muros a los lados de la boca
+    P.boxR(x, y + TUNNEL_H + 1.5, z, 2 * W + 28, 3, 1.4, rot, 0xa8a297);                                                                           // dintel
+    P.boxR(x, y + TUNNEL_H + 0.3, z, 2 * W, 0.6, 1.5, rot, 0xd9d3c6);                                                     // ceja clara
+  }
 }
 
 function stripe(P, at, i, off, w, col) {

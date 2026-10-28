@@ -88,14 +88,14 @@ export class Physics {
     return R.ColliderDesc.trimesh(verts, idx);
   }
 
-  // Superficie de los tableros de los puentes (red vial entre regiones)
+  // Superficie de los tableros de los puentes y del piso de los túneles (red vial entre regiones)
   deckCollider(R) {
     const verts = [], idx = [];
     for (const road of this.city.highways?.roads || []) {
       const n = road.pts.length, m = road.closed ? n : n - 1, hw = road.spec.w / 2 + 0.9;
       for (let i = 0; i < m; i++) {
         const j = (i + 1) % n;
-        if (!road.deck[i] || !road.deck[j]) continue;
+        if (!(road.deck[i] && road.deck[j]) && !(road.tunnel[i] && road.tunnel[j])) continue;   // tablero o piso del túnel
         const base = verts.length / 3;
         for (const k of [i, j]) {
           const [x, z] = road.pts[k], [ux, uz] = road.tan[k];
@@ -136,7 +136,7 @@ export class Physics {
       if (this.chunks.has(key)) continue;
       const x0 = (ci + di) * C, z0 = (cj + dj) * C;
       if (x0 >= fx0 && x0 + C <= fx1 && z0 >= fz0 && z0 + C <= fz1) { this.chunks.set(key, null); continue; }
-      const G = W.coarse, res = G.res;
+      const G = W.coarse, res = G.res, holes = this.city.highways?.holes || new Set();
       const i0 = Math.max(0, Math.round((x0 - G.x0) / res)), i1 = Math.min(G.nx - 1, Math.round((x0 + C - G.x0) / res));
       const j0 = Math.max(0, Math.round((z0 - G.z0) / res)), j1 = Math.min(G.nz - 1, Math.round((z0 + C - G.z0) / res));
       const cols = i1 - i0 + 1, rows = j1 - j0 + 1;
@@ -147,6 +147,7 @@ export class Physics {
       for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
         const cx = G.x0 + (i0 + i + 0.5) * res, cz = G.z0 + (j0 + j + 0.5) * res;
         if (cx > fx0 && cx < fx1 && cz > fz0 && cz < fz1) continue;     // celda de Puerto Nova: ya la cubre la malla fina
+        if (holes.has((j0 + j) * G.nx + i0 + i)) continue;              // boca de un túnel
         const a = j * cols + i, b = a + 1, c = a + cols + 1, d = a + cols;
         idx.push(a, c, b, a, d, c);
       }
@@ -180,7 +181,7 @@ export class Physics {
         const m = this.controller.computedMovement();
         ch.x += m.x; ch.y += m.y; ch.z += m.z;
         ch.grounded = this.controller.computedGrounded();
-        const g = this.city.height(ch.x, ch.z);
+        const g = this.city.surface(ch.x, ch.z, ch.y);   // terreno, puente o piso del túnel
         if (ch.y < g - 0.6) { ch.y = g; ch.grounded = true; } // seguridad: nunca atravesar el suelo
         ch.body.setNextKinematicTranslation({ x: ch.x, y: ch.y + CENTER_OFFSET, z: ch.z });
         this.world.timestep = Math.min(Math.max(dt, 1 / 120), 1 / 20);
@@ -194,7 +195,7 @@ export class Physics {
   }
 
   groundAt(x, z, yFeet) {
-    return Math.max(this.city.height(x, z), this.grid.groundHeight(x, z, RADIUS, yFeet));
+    return Math.max(this.city.surface(x, z, yFeet), this.grid.groundHeight(x, z, RADIUS, yFeet));
   }
 
   moveSimple(ch, dx, dy, dz) {
@@ -205,7 +206,7 @@ export class Physics {
       const px = x, pz = z;
       x += dx / steps; z += dz / steps;
       // pendientes demasiado empinadas bloquean el paso
-      const rise = this.city.height(x, z) - this.city.height(px, pz);
+      const rise = this.city.surface(x, z, ch.y) - this.city.surface(px, pz, ch.y);
       const run = Math.hypot(x - px, z - pz) || 1e-6;
       if (rise / run > 1.15 && rise > 0.05) { x = px; z = pz; break; }
       const r = this.grid.resolveCylinder(x, z, RADIUS, ch.y, CENTER_OFFSET * 2);
@@ -223,7 +224,7 @@ export class Physics {
   }
 
   teleport(ch, x, y, z) {
-    y = Math.max(y, this.city.height(x, z));
+    y = Math.max(y, this.city.surface(x, z, y));
     this.ensureTerrain(x, z);
     ch.x = x; ch.y = y; ch.z = z;
     if (this.backend === 'rapier' && ch.body) {
@@ -243,6 +244,7 @@ export class Physics {
   }
 
   terrainRay(ox, oy, oz, dx, dy, dz, maxDist) {
+    if (this.city.inTunnel(ox, oz, oy)) return Infinity;   // dentro del túnel mandan sus muros y techo
     const hm = { height: this.city.height };
     const step = maxDist > 12 ? 2 : 0.75;
     let prev = 0;

@@ -140,7 +140,8 @@ export const ROADS_PLAN = [
   { name: 'Camino Lago Verde', cls: 'terraceria', pts: WL([[150, 220], [128, 255], [100, 245]]) },
   { name: 'Camino del Bosque', cls: 'secundaria', pts: WL([[420, 250], [450, 180], [470, 100]]) },
   { name: 'Subida al Mirador', cls: 'terraceria', pts: WL([[580, 205], [598, 175], [608, 150], [615, 135]]) },
-  { name: 'Ruta de la Sierra', cls: 'terraceria', pts: WL([[140, 118], [250, 120], [350, 150], [470, 100]]), tunnel: [1, 2] },
+  // el túnel cruza la cumbre (hasta ~180 m) entre el último quiebre y el Pueblo del Bosque
+  { name: 'Ruta de la Sierra', cls: 'terraceria', pts: WL([[140, 118], [250, 120], [350, 150], [470, 100]]), tunnel: [2, 3] },
   { name: 'Camino al Oasis', cls: 'secundaria', pts: WL([[848, 200], [860, 160], [872, 135]]) },
   { name: 'Acceso al Aeropuerto', cls: 'carretera', pts: WL([[1138, 260], [1175, 235], [1205, 215]]) },
   { name: 'Carretera Pueblo Ruta', cls: 'carretera', pts: WL([[1140, 330], [1200, 330], [1250, 330]]) },

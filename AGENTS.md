@@ -41,6 +41,8 @@ este repositorio. Describe cómo está hecho el proyecto y las reglas para modif
   del terreno, puentes que se pueden pisar: `city.surface` y `playable` los incluyen). Las salidas de Puerto Nova
   se buscan con `shared/routing.js` (A* que esquiva lotes, sitios y calles). Dibujo en `client/js/world/highwayRenderer.js`.
   `npm test` incluye `tools/test-roads.js` (pendientes, curvas, cruces, colisiones y suelo continuo en cada vía).
+  Túneles: `road.tunnel`, `city.inTunnel` y `city.surface(x, z, y)` (piso del túnel si estás dentro); el terreno
+  grueso tiene huecos solo en las bocas (`highways.holes`), que el dibujo y la física omiten.
 - Zonas seguras: `city.safeZones` (servidor: `inSafeZone`; cliente: `safeZoneAt`). Si cambias el mapa, sube `MAP_VERSION` para que todos reaparezcan en la Plaza Central.
 
 ## Teletransporte de desarrollo (temporal)

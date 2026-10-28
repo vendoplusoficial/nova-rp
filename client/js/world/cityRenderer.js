@@ -285,6 +285,8 @@ export class CityRenderer {
     const raw = (i, j) => hm.h[clampI(j, 0, hm.nz - 1) * hm.nx + clampI(i, 0, hm.nx - 1)];
     const m = n / st + 1;
     const V = new Array(m * m), Nn = new Array(m * m), C = new Array(m * m);
+    const holes = hm === this.city.world.coarse && this.city.highways?.holes.size ? this.city.highways.holes : null;   // celda -> altura de la losa
+    const hasHole = (i, j) => { for (let q = 0; q < st; q++) for (let p = 0; p < st; p++) if (holes.has((j + q) * hm.nx + i + p)) return true; return false; };
     for (let b = 0; b < m; b++) for (let a = 0; a < m; a++) {
       const i = i0 + a * st, j = j0 + b * st;
       const x = hm.x0 + i * hm.res, z = hm.z0 + j * hm.res;
@@ -301,9 +303,26 @@ export class CityRenderer {
       for (let a = 0; a < m - 1; a++) {
         const k00 = b * m + a, k10 = k00 + 1, k01 = k00 + m, k11 = k01 + 1;
         if (V[k00][1] < -3 && V[k10][1] < -3 && V[k01][1] < -3 && V[k11][1] < -3) continue; // fondo marino profundo
+        if (holes && hasHole(i0 + a * st, j0 + b * st)) continue;                              // boca de un túnel
         // dos triángulos, diagonal (i,j)-(i+1,j+1) igual que la física
         P.triV(V[k00], V[k11], V[k10], Nn[k00], Nn[k11], Nn[k10], C[k00], C[k11], C[k10]);
         P.triV(V[k00], V[k01], V[k11], Nn[k00], Nn[k01], Nn[k11], C[k00], C[k01], C[k11]);
+      }
+    }
+    // bocas de túnel: el hueco se tapa con una losa (visera) y muros de roca hasta el terreno vecino;
+    // de frente queda abierta la boca (dentro del ancho del túnel)
+    if (holes) {
+      for (let cj = j0; cj < j0 + n; cj++) for (let ci = i0; ci < i0 + n; ci++) {
+        const H = holes.get(cj * hm.nx + ci);
+        if (!H) continue;
+        const pt = (i, j, y) => [hm.x0 + i * hm.res, y ?? raw(i, j), hm.z0 + j * hm.res];
+        // losa de doble cara (se ve desde arriba y desde la boca)
+        for (const ny of [1, -1]) P.quad(pt(ci, cj, H.slab), pt(ci + 1, cj, H.slab), pt(ci + 1, cj + 1, H.slab), pt(ci, cj + 1, H.slab), [0, ny, 0], 0x8a8478);
+        [[0, 0, 1, 0, 0, -1], [1, 0, 1, 1, 1, 0], [1, 1, 0, 1, 0, 1], [0, 1, 0, 0, -1, 0]].forEach(([a0, b0, a1, b1, ni, nj], e) => {
+          if (holes.has((cj + nj) * hm.nx + ci + ni) || H.open[e]) return;   // borde interior o la boca
+          const A = pt(ci + a0, cj + b0), Bv = pt(ci + a1, cj + b1);
+          for (const s of [1, -1]) P.quad(A, Bv, [Bv[0], H.slab, Bv[2]], [A[0], H.slab, A[2]], [ni * s, 0, nj * s], 0x7a7062);
+        });
       }
     }
     // faldón: franja vertical bajo el borde del mosaico; tapa las grietas entre mosaicos de

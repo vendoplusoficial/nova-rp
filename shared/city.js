@@ -22,7 +22,7 @@ import { SITE_BUILDERS as BASE_BUILDERS } from './landmarks.js';
 import { EXTRA_BUILDERS } from './landmarksExtra.js';
 import * as B from './buildings.js';
 import { regionVegetation } from './vegetation.js';
-import { buildHighways, highwayColliders, bridgeLamps, roadDistance } from './highways.js';
+import { buildHighways, highwayColliders, bridgeLamps, roadDistance, TUNNEL_H } from './highways.js';
 
 export { DISTRICTS, districtAt };
 const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
@@ -366,10 +366,14 @@ export function generateCity(seed = CITY_SEED) {
   for (const p of city.props) if (NATURAL.has(p.type) && inFine(p.x, p.z)) p.y = city.height(p.x, p.z);   // terreno nivelado
   city.props.push(...bridgeLamps(city.highways));
   city.wildTrees = regionVegetation(city, seed, onRoad);   // bosques, campo y desierto de las regiones nuevas
-  city.surface = (x, z, y) => {   // suelo pisable: terreno o tablero de puente (si vienes de arriba)
+  // suelo pisable en (x,z) para algo a la altura y: piso del túnel (si estás dentro), tablero de
+  // puente (si vienes de arriba) o el terreno
+  city.surface = (x, z, y) => {
+    if (y !== undefined) { const t = city.highways.tunnelAt(x, z); if (t !== null && y < t + TUNNEL_H) return t; }
     const g = city.height(x, z), d = city.highways.deckAt(x, z);
     return d !== null && (y === undefined || y > d - 2) ? Math.max(g, d) : g;
   };
+  city.inTunnel = (x, z, y) => { const t = city.highways.tunnelAt(x, z); return t !== null && y > t - 1 && y < t + TUNNEL_H; };
   buildColliders(city);
   city.colliders.push(...highwayColliders(city.highways));
   city.fence = fenceLines();

@@ -159,8 +159,9 @@ export function buildHighways(city) {
   const defs = [
     ...RINGS_PLAN.map((r) => ({ id: 'P-' + r.city, name: r.name, cls: 'periferico', pts: r.pts, closed: true })),
     ...HIGHWAYS_PLAN.map((h) => ({ id: h.id, name: h.name, cls: h.cls, pts: h.pts })),
-    // caminos a pueblos y lugares (el que lleva túnel se construye aparte)
+    // caminos a pueblos y lugares (el de túnel al final: llega a caminos ya construidos)
     ...ROADS_PLAN.filter((r) => !r.tunnel).map((r, k) => ({ id: 'R' + (k + 1), name: r.name, cls: r.cls, pts: r.pts })),
+    ...ROADS_PLAN.filter((r) => r.tunnel).map((r) => ({ id: 'T1', name: r.name, cls: r.cls, pts: r.pts, tunnelSpan: r.tunnel })),
   ];
   const exits = [], keepFine = makeKeepFine(city);
   for (const def of defs) {
@@ -208,6 +209,13 @@ export function buildHighways(city) {
     // ---------- rasante ----------
     const t = new Float32Array(n);
     for (let i = 0; i < n; i++) t[i] = water[i] ? floor[i] : H0(line[i][0], line[i][1]);
+    // túnel: entre esos dos puntos del plano la rasante va recta por dentro de la montaña
+    let span = null;
+    if (def.tunnelSpan) {
+      const st = (p) => { let b = 0, bd = Infinity; line.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < bd) { bd = d; b = i; } }); return b; };
+      span = [st(pts[def.tunnelSpan[0]]), st(pts[def.tunnelSpan[1]])].sort((a, b) => a - b);
+      for (let i = span[0]; i <= span[1]; i++) t[i] = t[span[0]] + ((t[span[1]] - t[span[0]]) * (i - span[0])) / (span[1] - span[0] || 1);
+    }
     const pinArr = pins.map((p) => ({ i: p.end === 0 ? 0 : n - 1, y: p.y }));
     // sobre otra vía ya construida (el cruce) la rasante es la de esa vía: su terreno ya quedó nivelado
     for (let i = 0; i < n; i++) for (const r of roads) {
@@ -218,6 +226,8 @@ export function buildHighways(city) {
     for (let i = 0; i < n; i++) if (inFine(line[i][0], line[i][1]) && !water[i] && keepFine(line[i][0], line[i][1])) pinArr.push({ i, y: H0(line[i][0], line[i][1]) });
     const y = profile(t, floor, pinArr, spec.grade * ST, !!def.closed);
     road.y = y;
+    road.tunnel = new Uint8Array(n);   // se decide al nivelar (con el terreno ya cortado por las otras vías)
+    road.span = span;
     road.ground = t;   // terreno original (para medir cortes y rellenos)
     road.floor = floor;
     road.deck = deck;
@@ -238,6 +248,9 @@ export function buildHighways(city) {
   }
   const net = { roads, ST, DECK_T };
   gradeTerrain(city, net, keepFine);
+  net.holes = tunnelHoles(city, net);
+  net.tunnels = segIndex(net, (r, i, j) => r.tunnel[i] && r.tunnel[j], 0.6);
+  net.tunnelAt = (x, z) => segAt(net.tunnels, x, z, 0);
   net.decks = deckSegments(net);
   registerDecks((x, z, margin) => deckAt(net, x, z, margin) !== null);
   net.deckAt = (x, z) => deckAt(net, x, z, 0);
@@ -276,12 +289,14 @@ function gradeTerrain(city, net, keepFine) {
   const lockF = new Uint8Array(F.nx * F.nz), lockC = new Uint8Array(C.nx * C.nz);
   for (const road of net.roads) {
     const half = road.spec.w / 2 + road.spec.sh;
+    if (road.span) markTunnel(road, city.height);
     for (const [G, lock, skip] of [[F, lockF, (x, z) => !inFine(x, z) || keepFine(x, z)], [C, lockC, (x, z) => inFine(x, z)]]) {
       const best = new Map();   // índice de vértice -> {d, y, h0}
       const n = road.pts.length, m = road.closed ? n : n - 1;
       for (let i = 0; i < m; i++) {
         const i2 = (i + 1) % n;
         if (road.deck[i] && road.deck[i2] && (road.water[i] || road.water[i2])) continue;   // bajo el puente no se nivela
+        if (road.tunnel[i] || road.tunnel[i2]) continue;                                       // la montaña sobre el túnel se queda
         const a = road.pts[i], b = road.pts[i2];
         const reach = half + G.res + 42;
         const x0 = Math.min(a[0], b[0]) - reach, x1 = Math.max(a[0], b[0]) + reach, z0 = Math.min(a[1], b[1]) - reach, z1 = Math.max(a[1], b[1]) + reach;
@@ -310,6 +325,121 @@ function gradeTerrain(city, net, keepFine) {
     }
   }
   W.seam();
+}
+
+// ---------- túneles ----------
+// estaciones dentro de la montaña (más de 8 m de roca encima); los huecos cortos también son túnel
+function markTunnel(road, H) {
+  const n = road.pts.length, T = road.tunnel;
+  // las bocas quedan a 60 m o más de los extremos del camino (no encima de un cruce o de un pueblo)
+  for (let i = Math.max(road.span[0], 15); i <= Math.min(road.span[1], n - 16); i++) if (H(road.pts[i][0], road.pts[i][1]) - road.y[i] > 8) T[i] = 1;
+  for (let i = 1; i < n; i++) if (!T[i] && T[i - 1]) { let j = i; while (j < n && !T[j]) j++; if (j < n && j - i < 6) for (let k = i; k < j; k++) T[k] = 1; }
+}
+export const TUNNEL_H = 6.5;   // altura libre
+// Bocas del túnel en el terreno grueso:
+//  1. sobre el túnel (desde 8 m adentro de cada boca) el terreno queda 1.5 m por encima del techo
+//  2. se quitan las celdas que cruzan la boca; el dibujo las cierra con una losa (visera) y muros de roca
+// Devuelve celda -> { slab, px, pz, nx, nz, W }: altura de la losa y eje del túnel (para dejar la boca abierta).
+function tunnelHoles(city, net) {
+  const C = city.world.coarse, holes = new Map();
+  for (const road of net.roads) {
+    const n = road.pts.length, W = road.spec.w / 2 + 0.6, R = W + 3;
+    const T = road.tunnel;
+    if (!T.includes(1)) continue;
+    // distancia (en estaciones) a la boca más cercana
+    const depth = new Int32Array(n).fill(0);
+    for (let i = 0; i < n; i++) if (T[i]) depth[i] = i > 0 && T[i - 1] ? depth[i - 1] + 1 : 1;
+    for (let i = n - 2; i >= 0; i--) if (T[i]) depth[i] = Math.min(depth[i], T[i + 1] ? depth[i + 1] + 1 : 1);
+    const nearest = (x, z, i) => { let b = i, bd = Infinity; for (let k = Math.max(0, i - 4); k <= Math.min(n - 1, i + 4); k++) { const d = Math.hypot(road.pts[k][0] - x, road.pts[k][1] - z); if (d < bd) { bd = d; b = k; } } return b; };
+    const lateral = (k, x, z) => { const [px, pz] = road.pts[k], [ux, uz] = road.tan[k]; return Math.abs((x - px) * -uz + (z - pz) * ux); };
+    const around = (i, rad, fn) => {
+      const [x, z] = road.pts[i];
+      const i0 = Math.floor((x - rad - C.x0) / C.res), i1 = Math.ceil((x + rad - C.x0) / C.res);
+      const j0 = Math.floor((z - rad - C.z0) / C.res), j1 = Math.ceil((z + rad - C.z0) / C.res);
+      for (let j = j0; j <= j1; j++) for (let ii = i0; ii <= i1; ii++) fn(ii, j);
+    };
+    for (let i = 0; i < n; i++) {
+      if (depth[i] < 3) continue;
+      around(i, W + 2, (ii, j) => {
+        const x = C.x0 + ii * C.res, z = C.z0 + j * C.res, k = nearest(x, z, i);
+        if (depth[k] < 3 || lateral(k, x, z) > W + 2) return;
+        const top = road.y[k] + TUNNEL_H + 1.5, q = j * C.nx + ii;
+        if (C.h[q] < top) C.h[q] = top;
+      });
+    }
+    for (let i = 0; i < n; i++) {
+      if (!T[i]) continue;
+      around(i, R + C.res, (ii, j) => {
+        const q = j * C.nx + ii;
+        if (holes.has(q)) return;
+        const corners = [[ii, j], [ii + 1, j], [ii, j + 1], [ii + 1, j + 1]].map(([a, b]) => [C.x0 + a * C.res, C.z0 + b * C.res, C.h[b * C.nx + a]]);
+        let inside = false, hmin = Infinity;
+        for (const [x, z, h] of corners) { const k = nearest(x, z, i); if (T[k] && lateral(k, x, z) < R) inside = true; hmin = Math.min(hmin, h); }
+        if (!inside || hmin >= road.y[i] + TUNNEL_H + 0.5) return;
+        const [px, pz] = road.pts[i], [ux, uz] = road.tan[i];
+        holes.set(q, { slab: road.y[i] + TUNNEL_H + 1.5, px, pz, nx: -uz, nz: ux, W, corners, road, nearest: (x, z) => nearest(x, z, i) });
+      });
+    }
+    // el túnel se alarga hacia afuera hasta cubrir todas las celdas quitadas: el portal queda al frente
+    const runs = [];
+    for (let i = 0; i < n; i++) if (T[i] && (i === 0 || !T[i - 1])) { let j = i; while (j + 1 < n && T[j + 1]) j++; runs.push([i, j]); }
+    for (const [a, b] of runs) {
+      let front = 0, back = 0;
+      for (const H of holes.values()) for (const [x, z] of H.corners) {
+        const pa = (x - road.pts[a][0]) * road.tan[a][0] + (z - road.pts[a][1]) * road.tan[a][1];
+        const pb = (x - road.pts[b][0]) * road.tan[b][0] + (z - road.pts[b][1]) * road.tan[b][1];
+        if (Math.hypot(x - road.pts[a][0], z - road.pts[a][1]) < 30) front = Math.min(front, pa);
+        if (Math.hypot(x - road.pts[b][0], z - road.pts[b][1]) < 30) back = Math.max(back, pb);
+      }
+      for (let k = 1; k <= Math.ceil(-front / ST) + 1 && a - k >= 0; k++) T[a - k] = 1;
+      for (let k = 1; k <= Math.ceil(back / ST) + 1 && b + k < n; k++) T[b + k] = 1;
+    }
+  }
+  // bordes del hueco que dan a la boca (frente al portal, dentro del ancho del túnel): sin muro de roca
+  for (const [q, H] of holes) {
+    const ci = q % C.nx, cj = Math.floor(q / C.nx);
+    H.open = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([di, dj]) => {
+      if (holes.has((cj + dj) * C.nx + ci + di)) return false;
+      const x = C.x0 + (ci + di + 0.5) * C.res, z = C.z0 + (cj + dj + 0.5) * C.res;
+      const road = H.road, k = H.nearest(x, z);
+      const lat = Math.abs((x - road.pts[k][0]) * -road.tan[k][1] + (z - road.pts[k][1]) * road.tan[k][0]);
+      return !road.tunnel[k] && lat < H.W + 2;
+    });
+    delete H.corners; delete H.road; delete H.nearest;
+  }
+  return holes;
+}
+
+// índice de tramos (celdas de 64 m) que cumplen una condición; segAt da la altura de la rasante
+function segIndex(net, pick, extra) {
+  const cells = new Map();
+  for (const road of net.roads) {
+    const n = road.pts.length, m = road.closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const j = (i + 1) % n;
+      if (!pick(road, i, j)) continue;
+      const s = { road, a: road.pts[i], b: road.pts[j], ya: road.y[i], yb: road.y[j], hw: road.spec.w / 2 + extra };
+      const k = Math.floor((s.a[0] + s.b[0]) / 2 / 64) + ',' + Math.floor((s.a[1] + s.b[1]) / 2 / 64);
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(s);
+    }
+  }
+  return cells;
+}
+function segAt(cells, x, z, margin) {
+  const cx = Math.floor(x / 64), cz = Math.floor(z / 64);
+  let best = null, bd = Infinity;
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    for (const s of cells.get(cx + i + ',' + (cz + j)) || []) {
+      const dx = s.b[0] - s.a[0], dz = s.b[1] - s.a[1], L2 = dx * dx + dz * dz || 1;
+      const raw = ((x - s.a[0]) * dx + (z - s.a[1]) * dz) / L2;
+      if (raw < -0.05 || raw > 1.05) continue;
+      const t = Math.max(0, Math.min(1, raw));
+      const d = Math.hypot(x - s.a[0] - dx * t, z - s.a[1] - dz * t);
+      if (d < s.hw - margin && d < bd) { bd = d; best = s.ya + (s.yb - s.ya) * t; }
+    }
+  }
+  return best;
 }
 
 // ---------- puentes ----------
@@ -419,6 +549,25 @@ export function highwayColliders(net) {
         const ox = -uz * side * (hw - 0.2), oz = ux * side * (hw - 0.2);
         cols.push({ cx: cx + ox, cz: cz + oz, hx: L / 2 + 0.05, hz: 0.2, rot, minY: top - 0.2, maxY: top + 1.0 });
       }
+    }
+  }
+  // túneles: muros a los lados, techo donde se quitó el terreno y portales (muro con la boca)
+  for (const road of net.roads) {
+    const n = road.pts.length, hw = road.spec.w / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (!road.tunnel[i] || !road.tunnel[i + 1]) continue;
+      const a = road.pts[i], b = road.pts[i + 1], y = Math.min(road.y[i], road.y[i + 1]), top = Math.max(road.y[i], road.y[i + 1]);
+      const cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2, L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const rot = Math.atan2(-(b[1] - a[1]), b[0] - a[0]), ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L;
+      for (const side of [1, -1]) cols.push({ cx: cx - uz * side * (hw + 1.1), cz: cz + ux * side * (hw + 1.1), hx: L / 2 + 0.05, hz: 0.5, rot, minY: y - 1, maxY: top + TUNNEL_H + 1 });
+      cols.push({ cx, cz, hx: L / 2 + 0.05, hz: hw + 1.6, rot, minY: top + TUNNEL_H, maxY: top + TUNNEL_H + 1.2 });
+    }
+    for (let i = 1; i < n; i++) {
+      if (road.tunnel[i] === road.tunnel[i - 1]) continue;
+      const k = road.tunnel[i] ? i : i - 1, [x, z] = road.pts[k], [ux, uz] = road.tan[k], y = road.y[k];
+      const rot = Math.atan2(-uz, ux) + Math.PI / 2;   // el muro atraviesa la vía
+      for (const side of [1, -1]) cols.push({ cx: x - uz * side * (hw + 7.6), cz: z + ux * side * (hw + 7.6), hx: 6.5, hz: 0.6, rot, minY: y - 2, maxY: y + TUNNEL_H + 4 });
+      cols.push({ cx: x, cz: z, hx: hw + 14, hz: 0.6, rot, minY: y + TUNNEL_H, maxY: y + TUNNEL_H + 4 });
     }
   }
   for (const p of net.piers) {
