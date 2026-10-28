@@ -28,6 +28,13 @@ export class Minimap {
     this.zoom = 0.75;
   }
 
+  // Se agregó una ciudad nueva: se vuelve a dibujar la capa del mundo
+  refreshWorld() {
+    const cur = this.layer;
+    this.layers.world = this.renderBase({ x0: WORLD.x0, z0: WORLD.z0, x1: WORLD.x1, z1: WORLD.z1 }, 0.22, 8, false);
+    this.use(cur === this.layers.city ? this.layers.city : this.layers.world);
+  }
+
   use(L) { this.base = L.cv; this.X0 = L.X0; this.Z0 = L.Z0; this.scale = L.scale; this.layer = L; }
 
   mx(x) { return (x - this.X0) * this.scale; }
@@ -80,7 +87,7 @@ export class Minimap {
     for (const z of c.safeZones || []) { g.beginPath(); g.arc(this.mx(z.x), this.mz(z.z), z.r * s, 0, Math.PI * 2); g.fill(); g.stroke(); }
     // calles: primero el borde (banquetas), luego el asfalto
     g.lineCap = 'round'; g.lineJoin = 'round';
-    const roads = c.roads.slice().sort((a, b) => a.w - b.w);
+    const roads = [...c.roads, ...(c.urban || []).flatMap((u) => u.net.roads.filter((r) => !r.external))].sort((a, b) => a.w - b.w);
     for (const pass of [0, 1]) {
       for (const r of roads) {
         const main = ['avenida', 'boulevard'].includes(r.cls);

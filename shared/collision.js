@@ -11,21 +11,31 @@ export class CollisionGrid {
     this.stamp = new Uint32Array(boxes.length);
     this.stampId = 1;
     this.big = [];
-    boxes.forEach((b, idx) => {
-      const c = Math.cos(b.rot || 0), s = Math.sin(b.rot || 0);
-      b._c = c; b._s = s;
-      const ex = Math.abs(b.hx * c) + Math.abs(b.hz * s), ez = Math.abs(b.hx * s) + Math.abs(b.hz * c);
-      b.minX = b.cx - ex; b.maxX = b.cx + ex; b.minZ = b.cz - ez; b.maxZ = b.cz + ez;
-      const cx0 = Math.floor(b.minX / cell), cx1 = Math.floor(b.maxX / cell);
-      const cz0 = Math.floor(b.minZ / cell), cz1 = Math.floor(b.maxZ / cell);
-      if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 400) { this.big.push(idx); return; }
-      for (let x = cx0; x <= cx1; x++) for (let z = cz0; z <= cz1; z++) {
-        const k = x * 73856093 ^ z * 19349663;
-        let arr = this.map.get(k);
-        if (!arr) { arr = []; this.map.set(k, arr); }
-        arr.push(idx);
-      }
-    });
+    boxes.forEach((b, idx) => this.insert(b, idx));
+  }
+
+  insert(b, idx) {
+    const cell = this.cell;
+    const c = Math.cos(b.rot || 0), s = Math.sin(b.rot || 0);
+    b._c = c; b._s = s;
+    const ex = Math.abs(b.hx * c) + Math.abs(b.hz * s), ez = Math.abs(b.hx * s) + Math.abs(b.hz * c);
+    b.minX = b.cx - ex; b.maxX = b.cx + ex; b.minZ = b.cz - ez; b.maxZ = b.cz + ez;
+    const cx0 = Math.floor(b.minX / cell), cx1 = Math.floor(b.maxX / cell);
+    const cz0 = Math.floor(b.minZ / cell), cz1 = Math.floor(b.maxZ / cell);
+    if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 400) { this.big.push(idx); return; }
+    for (let x = cx0; x <= cx1; x++) for (let z = cz0; z <= cz1; z++) {
+      const k = x * 73856093 ^ z * 19349663;
+      let arr = this.map.get(k);
+      if (!arr) { arr = []; this.map.set(k, arr); }
+      arr.push(idx);
+    }
+  }
+
+  // Indexa las cajas agregadas al final del arreglo desde `start` (p. ej. una ciudad generada en
+  // segundo plano que se suma a city.colliders, el mismo arreglo que usa esta rejilla)
+  indexFrom(start) {
+    for (let idx = start; idx < this.boxes.length; idx++) this.insert(this.boxes[idx], idx);
+    if (this.stamp.length < this.boxes.length) { const st = new Uint32Array(this.boxes.length + 1024); st.set(this.stamp); this.stamp = st; }
   }
 
   query(minX, minZ, maxX, maxZ, cb) {

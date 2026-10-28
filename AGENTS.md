@@ -43,6 +43,12 @@ este repositorio. Describe cómo está hecho el proyecto y las reglas para modif
   `npm test` incluye `tools/test-roads.js` (pendientes, curvas, cruces, colisiones y suelo continuo en cada vía).
   Túneles: `road.tunnel`, `city.inTunnel` y `city.surface(x, z, y)` (piso del túnel si estás dentro); el terreno
   grueso tiene huecos solo en las bocas (`highways.holes`), que el dibujo y la física omiten.
+- Ciudades nuevas (Ciudad Desértica; después Montañosa y los pueblos): plano en `shared/citiesPlan.js` (avenidas,
+  glorietas, barrios con su trama, lugares) y generador en `shared/urban.js`, que reutiliza calles, manzanas, lotes y
+  edificios de Puerto Nova con su propia `RoadNet` (`city.urban[i].net`, `city.netAt(x, z)`) y su propia malla fina de
+  4 m (`city.world.extra`). Sus lotes, lugares y retornos van en `city.lots/sites/caps` con `city: '<id>'`.
+  El servidor las genera al arrancar; el cliente arranca sin ellas (`getCity(seed, { urban: false })`) y las genera
+  en un Web Worker (`client/js/world/urbanLoader.js` + `urbanWorker.js`). `npm test` verifica que ambas salgan idénticas.
 - Zonas seguras: `city.safeZones` (servidor: `inSafeZone`; cliente: `safeZoneAt`). Si cambias el mapa, sube `MAP_VERSION` para que todos reaparezcan en la Plaza Central.
 
 ## Teletransporte de desarrollo (temporal)

@@ -420,6 +420,17 @@ export class Heightmap {
     this.smoothInland(passes);
   }
 
+  // Malla nueva sobre un rectángulo (alineado a la malla gruesa) tomando alturas de fn(x,z)
+  static sampled(box, res, fn) {
+    const hm = Object.create(Heightmap.prototype);
+    hm.res = res; hm.x0 = box.x0; hm.z0 = box.z0;
+    hm.nx = Math.round((box.x1 - box.x0) / res) + 1; hm.nz = Math.round((box.z1 - box.z0) / res) + 1;
+    hm.h = new Float32Array(hm.nx * hm.nz);
+    hm.mask = new Uint8Array(hm.nx * hm.nz);
+    for (let j = 0; j < hm.nz; j++) for (let i = 0; i < hm.nx; i++) hm.h[j * hm.nx + i] = fn(hm.x0 + i * res, hm.z0 + j * res);
+    return hm;
+  }
+
   // Suaviza el relieve tierra adentro (quita picos y escalones de 4 m). No toca la costa, el lago,
   // el río, las calzadas ni los muelles: ahí la altura tiene que ser exacta.
   smoothInland(passes) {
@@ -561,14 +572,31 @@ export class WorldTerrain {
   constructor(fine) {
     this.fine = fine;
     this.coarse = new Heightmap(COARSE, 2);
+    this.extra = [];   // mallas finas (4 m) de las ciudades nuevas
   }
-  height(x, z) { return inFine(x, z) ? this.fine.height(x, z) : this.coarse.height(x, z); }
-  // malla que dibuja/colisiona un rectángulo (la fina solo si lo contiene completo)
-  gridFor(x0, z0, x1, z1) { return inFine(x0, z0) && inFine(x1, z1) ? this.fine : this.coarse; }
+  // malla fina de una ciudad nueva que contiene (x,z), o null
+  extraAt(x, z) {
+    for (const F of this.extra) if (x >= F.x0 && z >= F.z0 && x <= F.x0 + (F.nx - 1) * F.res && z <= F.z0 + (F.nz - 1) * F.res) return F;
+    return null;
+  }
+  height(x, z) {
+    if (inFine(x, z)) return this.fine.height(x, z);
+    const F = this.extra.length ? this.extraAt(x, z) : null;
+    return F ? F.height(x, z) : this.coarse.height(x, z);
+  }
+  // malla que dibuja/colisiona un rectángulo (una fina solo si lo contiene completo)
+  gridFor(x0, z0, x1, z1) {
+    if (inFine(x0, z0) && inFine(x1, z1)) return this.fine;
+    const F = this.extraAt(x0, z0);
+    return F && F === this.extraAt(x1, z1) ? F : this.coarse;
+  }
+  // agrega la malla fina de una ciudad nueva (cuadrada con la gruesa) y la cose
+  addFine(F) { this.extra.push(F); this.seamGrid(F); }
+  seam() { this.seamGrid(this.fine); }
   // Une las mallas sin grietas: la gruesa copia a la fina dentro de su área y, en el borde de la
   // fina, los vértices intermedios quedan en línea recta entre los de la gruesa.
-  seam() {
-    const F = this.fine, C = this.coarse, k = Math.round(C.res / F.res);
+  seamGrid(F) {
+    const C = this.coarse, k = Math.round(C.res / F.res);
     const ci0 = Math.round((F.x0 - C.x0) / C.res), cj0 = Math.round((F.z0 - C.z0) / C.res);
     const cw = Math.floor((F.nx - 1) / k), ch = Math.floor((F.nz - 1) / k);
     for (let j = 0; j <= ch; j++) for (let i = 0; i <= cw; i++) C.h[(cj0 + j) * C.nx + ci0 + i] = F.h[j * k * F.nx + i * k];

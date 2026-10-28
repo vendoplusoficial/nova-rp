@@ -88,6 +88,29 @@ export class Physics {
     return R.ColliderDesc.trimesh(verts, idx);
   }
 
+  // Una ciudad nueva llegó en segundo plano: sus colisiones (ya en city.colliders desde `start`) y
+  // el terreno de su área se vuelve a crear con su malla fina
+  addUrban(u, start) {
+    this.grid.indexFrom(start);
+    if (this.backend !== 'rapier') return;
+    try {
+      const R = this.R;
+      for (let i = start; i < this.city.colliders.length; i++) {
+        const b = this.city.colliders[i], hy = (b.maxY - b.minY) / 2;
+        if (b.deck || b.hx <= 0 || b.hz <= 0 || hy <= 0) continue;
+        const rot = b.rot || 0;
+        this.world.createCollider(R.ColliderDesc.cuboid(b.hx, hy, b.hz).setTranslation(b.cx, (b.minY + b.maxY) / 2, b.cz).setRotation({ x: 0, y: Math.sin(rot / 2), z: 0, w: Math.cos(rot / 2) }));
+      }
+      for (const [key, col] of this.chunks) {
+        const [a, b] = key.split(',').map(Number);
+        if ((a + 1) * 128 < u.box.x0 || a * 128 > u.box.x1 || (b + 1) * 128 < u.box.z0 || b * 128 > u.box.z1) continue;
+        if (col) this.world.removeCollider(col, false);
+        this.chunks.delete(key);
+      }
+      this.lastChunk = null;
+    } catch (e) { this.fallback(e); }
+  }
+
   // Superficie de los tableros de los puentes y del piso de los túneles (red vial entre regiones)
   deckCollider(R) {
     const verts = [], idx = [];
@@ -136,23 +159,32 @@ export class Physics {
       if (this.chunks.has(key)) continue;
       const x0 = (ci + di) * C, z0 = (cj + dj) * C;
       if (x0 >= fx0 && x0 + C <= fx1 && z0 >= fz0 && z0 + C <= fz1) { this.chunks.set(key, null); continue; }
-      const G = W.coarse, res = G.res, holes = this.city.highways?.holes || new Set();
-      const i0 = Math.max(0, Math.round((x0 - G.x0) / res)), i1 = Math.min(G.nx - 1, Math.round((x0 + C - G.x0) / res));
-      const j0 = Math.max(0, Math.round((z0 - G.z0) / res)), j1 = Math.min(G.nz - 1, Math.round((z0 + C - G.z0) / res));
-      const cols = i1 - i0 + 1, rows = j1 - j0 + 1;
-      if (cols < 2 || rows < 2) { this.chunks.set(key, null); continue; }
-      const verts = new Float32Array(cols * rows * 3), idx = [];
-      let k = 0;
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { verts[k++] = G.x0 + i * res; verts[k++] = G.h[j * G.nx + i]; verts[k++] = G.z0 + j * res; }
-      for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
-        const cx = G.x0 + (i0 + i + 0.5) * res, cz = G.z0 + (j0 + j + 0.5) * res;
-        if (cx > fx0 && cx < fx1 && cz > fz0 && cz < fz1) continue;     // celda de Puerto Nova: ya la cubre la malla fina
-        if (holes.has((j0 + j) * G.nx + i0 + i)) continue;              // boca de un túnel
-        const a = j * cols + i, b = a + 1, c = a + cols + 1, d = a + cols;
-        idx.push(a, c, b, a, d, c);
+      // celdas de una malla dentro del trozo (sin las que skip excluye), con la misma diagonal que el dibujo
+      const verts = [], idx = [];
+      const addGrid = (G, skip) => {
+        const res = G.res;
+        const i0 = Math.max(0, Math.round((x0 - G.x0) / res)), i1 = Math.min(G.nx - 1, Math.round((x0 + C - G.x0) / res));
+        const j0 = Math.max(0, Math.round((z0 - G.z0) / res)), j1 = Math.min(G.nz - 1, Math.round((z0 + C - G.z0) / res));
+        const cols = i1 - i0 + 1, rows = j1 - j0 + 1;
+        if (cols < 2 || rows < 2) return;
+        const base = verts.length / 3;
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) verts.push(G.x0 + i * res, G.h[j * G.nx + i], G.z0 + j * res);
+        for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+          if (skip(i0 + i, j0 + j, G.x0 + (i0 + i + 0.5) * res, G.z0 + (j0 + j + 0.5) * res)) continue;
+          const a = base + j * cols + i, b = a + 1, c = a + cols + 1, d = a + cols;
+          idx.push(a, c, b, a, d, c);
+        }
+      };
+      const holes = this.city.highways?.holes || new Set();
+      const G = W.coarse;
+      // malla gruesa: sin Puerto Nova, sin las ciudades nuevas (tienen su malla fina) y sin bocas de túnel
+      addGrid(G, (i, j, cx, cz) => (cx > fx0 && cx < fx1 && cz > fz0 && cz < fz1) || !!W.extraAt(cx, cz) || holes.has(j * G.nx + i));
+      for (const E of W.extra) {
+        if (E.x0 > x0 + C || E.z0 > z0 + C || E.x0 + (E.nx - 1) * E.res < x0 || E.z0 + (E.nz - 1) * E.res < z0) continue;
+        addGrid(E, () => false);
       }
       if (!idx.length) { this.chunks.set(key, null); continue; }
-      try { this.chunks.set(key, this.world.createCollider(this.R.ColliderDesc.trimesh(verts, new Uint32Array(idx)))); } catch (e) { this.fallback(e); return; }
+      try { this.chunks.set(key, this.world.createCollider(this.R.ColliderDesc.trimesh(new Float32Array(verts), new Uint32Array(idx)))); } catch (e) { this.fallback(e); return; }
     }
     for (const [key, col] of this.chunks) {
       const [a, b] = key.split(',').map(Number);

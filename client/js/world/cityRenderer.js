@@ -108,17 +108,41 @@ export class CityRenderer {
     return t;
   }
 
+  addTo = (x, z, list, item) => { const k = this.tileKey(x, z); if (k) this.tile(k)[list].push(item); };
+
+  // Una ciudad nueva generada en segundo plano: se reparte en mosaicos y los mosaicos de su área se
+  // reconstruyen con su malla fina
+  addUrban(u, pkg) {
+    for (const l of pkg.lots) this.addTo(l.cx, l.cz, 'lots', l);
+    for (const st of pkg.sites) this.addTo(st.cx, st.cz, 'sites', st);
+    for (const p of pkg.props) this.addTo(p.x, p.z, 'props', p);
+    for (const cp of pkg.caps) this.addTo(cp.cx, cp.cz, 'caps', cp);
+    this.indexNet(u.net, this.addTo);
+    for (const t of this.tiles.values()) {
+      if (t.x0 + TILE < u.box.x0 || t.x0 > u.box.x1 || t.z0 + TILE < u.box.z0 || t.z0 > u.box.z1) continue;
+      t.grid = this.city.world.gridFor(t.x0, t.z0, t.x0 + TILE, t.z0 + TILE);
+      t.low = null;
+      if (t.base) this.unload(t, 'base');
+      if (t.detail) this.unload(t, 'detail');
+    }
+    this.frame = 0;   // que el siguiente update vuelva a pedir los mosaicos cercanos
+  }
+
   // Reparte todo en mosaicos y precalcula intersecciones de calles
   index() {
     for (let i = 0; i < this.nx; i++) for (let j = 0; j < this.nz; j++) this.tile(i + ',' + j);
-    const add = (x, z, list, item) => { const k = this.tileKey(x, z); if (k) this.tile(k)[list].push(item); };
+    const add = this.addTo;
     for (const l of this.city.lots) add(l.cx, l.cz, 'lots', l);
     for (const s of this.city.sites) add(s.cx, s.cz, 'sites', s);
     for (const p of this.city.props) add(p.x, p.z, 'props', p);
     for (const cp of this.city.caps || []) add(cp.cx, cp.cz, 'caps', cp);
     for (const pc of this.city.highways?.pieces || []) add(pc.cx, pc.cz, 'hw', pc);
     for (const pr of this.city.highways?.piers || []) add(pr.x, pr.z, 'piers', pr);
-    const net = this.city.net;
+    for (const net of [this.city.net, ...(this.city.urban || []).map((u) => u.net)]) this.indexNet(net, add);
+  }
+
+  // tramos de una red de calles (Puerto Nova o una ciudad nueva) repartidos en mosaicos
+  indexNet(net, add) {
     // en los quiebres de una calle las orillas se cortan a inglete: el lado interior se acorta y el
     // exterior se alarga lo justo para que asfalto y banqueta sigan la curva sin dientes ni huecos
     const segs = net.segs;
@@ -133,6 +157,7 @@ export class CityRenderer {
     }
     for (const seg of net.segs) {
       const road = seg.road;
+      if (road.external) continue;   // el periférico de una ciudad nueva lo dibuja highwayRenderer
       const half = road.w / 2;
       seg.free = {
         c: freeIntervals(net.blockedIntervals(seg, 0, 1.5)),
@@ -343,12 +368,13 @@ export class CityRenderer {
 
   // Cuánto se baja (solo visualmente) cada vértice del terreno de un mosaico
   lowered(t, i0, j0, n) {
-    const hm = t.grid, net = this.city.net, ln = n + 1;
+    const hm = t.grid, net = this.city.netAt ? this.city.netAt(t.x0 + TILE / 2, t.z0 + TILE / 2) : this.city.net, ln = n + 1;
+    const notExternal = (sg) => !sg.road.external;
     const out = new Float32Array(ln * ln);
     const caps = this.city.caps || [];
     for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
       const x = hm.x0 + (i0 + i) * hm.res, z = hm.z0 + (j0 + j) * hm.res;
-      const { c } = net.clearance(x, z);
+      const { c } = net.clearance(x, z, notExternal);
       let on = c < 0.4;
       if (!on) for (const cp of caps) if (cp.type === 'street' && Math.hypot(x - cp.cx, z - cp.cz) < cp.R + cp.sw + 0.4) { on = true; break; }
       out[j * ln + i] = on ? 0.3 : 0;

@@ -240,7 +240,7 @@ export function smoothPath(pts, closed = false, step = 7) {
 const lerpP = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 
 // Quita de una polilínea las partes dentro de un círculo; devuelve tramos que terminan en el círculo
-function cutByCircle(pts, cx, cz, R) {
+export function cutByCircle(pts, cx, cz, R) {
   const inside = (p) => Math.hypot(p[0] - cx, p[1] - cz) < R;
   const cross = (a, b) => {
     const dx = b[0] - a[0], dz = b[1] - a[1], fx = a[0] - cx, fz = a[1] - cz;
@@ -360,8 +360,8 @@ export function buildLocalRoads(net, reserved, slopeAt) {
   keepConnected(net);
 }
 
-// Solo se conservan las calles conectadas (directa o indirectamente) con el Anillo Periférico
-export function keepConnected(net) {
+// Solo se conservan las calles conectadas (directa o indirectamente) con el anillo de la ciudad
+export function keepConnected(net, rootName = 'Anillo Periférico') {
   const roads = net.roads;
   // dos tramos se tocan si se cruzan o si el extremo de uno cae sobre el otro
   const segTouch = (s, o) => {
@@ -378,7 +378,7 @@ export function keepConnected(net) {
       if (segTouch(s, o)) { nb.get(s.road).add(o.road); nb.get(o.road).add(s.road); }
     }
   }
-  const root = roads.find((r) => r.name === 'Anillo Periférico');
+  const root = roads.find((r) => r.name === rootName);
   const seen = new Set([root]);
   const st = [root];
   while (st.length) { const r = st.pop(); for (const q of nb.get(r)) if (!seen.has(q)) { seen.add(q); st.push(q); } }

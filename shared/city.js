@@ -23,15 +23,18 @@ import { EXTRA_BUILDERS } from './landmarksExtra.js';
 import * as B from './buildings.js';
 import { regionVegetation } from './vegetation.js';
 import { buildHighways, highwayColliders, bridgeLamps, roadDistance, TUNNEL_H } from './highways.js';
+import { generateUrban } from './urban.js';
+import { URBAN_PLANS } from './citiesPlan.js';
 
 export { DISTRICTS, districtAt };
-const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
+export const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
 export const CITY_NAME = 'Puerto Nova';
 
 let cache = null;
-export function getCity(seed = CITY_SEED) {
+// opts.urban = false: sin las ciudades nuevas (el cliente las genera después en segundo plano)
+export function getCity(seed = CITY_SEED, opts = {}) {
   if (cache && cache.seed === seed) return cache;
-  cache = generateCity(seed);
+  cache = generateCity(seed, opts);
   return cache;
 }
 
@@ -50,7 +53,7 @@ export const PROP_COL = {
 };
 
 // Medidas de lote por arquitectura: ancho, fondo, separación entre lotes
-const ARCH = {
+export const ARCH = {
   casaHumilde: { w: [7.5, 10.5], d: [11, 14], gap: 0 },
   casaMedia: { w: [13, 16], d: [19, 23], gap: 0.3 },
   casaRural: { w: [14, 18], d: [16, 22], gap: 14 },
@@ -67,12 +70,12 @@ const ARCH = {
   taller: { w: [14, 20], d: [16, 22], gap: 1 },
 };
 // Fondo preferido (con patio trasero) para casas: llenan la manzana espalda con espalda
-const DEEP = { casaHumilde: 20, casaMedia: 32, villa: 46, hacienda: 44, casaRural: 28 };
+export const DEEP = { casaHumilde: 20, casaMedia: 32, villa: 46, hacienda: 44, casaRural: 28 };
 const RURAL = new Set(['montana', 'presa', 'campo', 'isla']);
-const HOMES = new Set(['casaHumilde', 'casaMedia', 'villa', 'hacienda', 'apartamentos', 'casaRural']);
-const CENTER = MP(800, 300); // Plaza Central
+export const HOMES = new Set(['casaHumilde', 'casaMedia', 'villa', 'hacienda', 'apartamentos', 'casaRural']);
+export const CENTER = MP(800, 300); // Plaza Central
 
-export function generateCity(seed = CITY_SEED) {
+export function generateCity(seed = CITY_SEED, opts = {}) {
   const t0 = Date.now();
   const hm = new Heightmap();
   const city = {
@@ -365,6 +368,12 @@ export function generateCity(seed = CITY_SEED) {
   city.props = city.props.filter((p) => !(NATURAL.has(p.type) ? onRoad(p.x, p.z) < 3 : onRoad(p.x, p.z) < 1));
   for (const p of city.props) if (NATURAL.has(p.type) && inFine(p.x, p.z)) p.y = city.height(p.x, p.z);   // terreno nivelado
   city.props.push(...bridgeLamps(city.highways));
+  // ciudades nuevas: su propia malla fina, calles, manzanas, lotes y edificios
+  city.urban = opts.urban === false ? [] : URBAN_PLANS.map((plan) => generateUrban(city, plan));
+  city.netAt = (x, z) => {   // red de calles de la ciudad que contiene (x,z)
+    for (const u of city.urban) if (x >= u.box.x0 && x <= u.box.x1 && z >= u.box.z0 && z <= u.box.z1) return u.net;
+    return city.net;
+  };
   city.wildTrees = regionVegetation(city, seed, onRoad);   // bosques, campo y desierto de las regiones nuevas
   // suelo pisable en (x,z) para algo a la altura y: piso del túnel (si estás dentro), tablero de
   // puente (si vienes de arriba) o el terreno
@@ -401,7 +410,7 @@ export function generateCity(seed = CITY_SEED) {
 
 // Quita de un sitio los objetos sueltos (árboles, postes, canastas, vallas, vehículos) que caen
 // sobre el asfalto de una calle: el sitio se acomoda a la calle, nunca al revés.
-function dropOnRoad(net, o, parts) {
+export function dropOnRoad(net, o, parts) {
   const onRoad = (lx, lz, m) => {
     const [x, z] = toWorld(o, lx, lz);
     for (const sg of net.near(x - 25, z - 25, x + 25, z + 25)) if (segDist(sg.ax, sg.az, sg.bx, sg.bz, x, z) < sg.road.w / 2 + m) return true;
@@ -447,7 +456,7 @@ export function toWorld(o, lx, lz) {
   return [o.cx + lx * c + lz * s, o.cz - lx * s + lz * c];
 }
 
-function resample(pts, step, closed) {
+export function resample(pts, step, closed) {
   const src = closed ? [...pts, pts[0]] : pts;
   const out = [src[0]];
   for (let i = 1; i < src.length; i++) {
@@ -463,7 +472,7 @@ function resample(pts, step, closed) {
 // Aplana el terreno bajo las calles. El perfil de TODA la red se resuelve junto (como un estudio
 // de topografía): cada calle es suave a lo largo, sigue al terreno de lejos, y en cada cruce las
 // dos calles comparten la misma altura (sin escalones ni rampas bruscas al entrar a una avenida).
-function flattenRoads(hm, list) {
+export function flattenRoads(hm, list) {
   const roads = list.filter((r) => r.pts.length >= 2);
   const R = [];
   let N = 0;
@@ -576,7 +585,7 @@ export function obbOverlap(a, b, m) {
 
 // Espacio libre dentro de una manzana (lo que no ocupan lotes ni sitios), como rectángulos grandes
 // alineados al frente más largo. Rejilla de 2 m + "mayor rectángulo en histograma".
-function freeRects(b, city, lotIndex, LCELL) {
+export function freeRects(b, city, lotIndex, LCELL) {
   const runs = frontages(b);
   if (!runs.length) return [];
   const r0 = runs[0], p0 = r0.pts[0], p1 = r0.pts[r0.pts.length - 1];
@@ -678,7 +687,7 @@ function fitRectInPoly(poly, sgn) {
 }
 
 // Acomoda un lugar importante en la manzana más cercana a su punto, con el frente hacia la calle
-function fitSite(def, blocks, overlaps, net) {
+export function fitSite(def, blocks, overlaps, net) {
   const at = def.at;
   const cand = blocks.filter((b) => pointInPoly(b.poly, at[0], at[1]));
   const near = blocks.map((b) => ({ b, d: Math.hypot(b.cx - at[0], b.cz - at[1]) })).sort((p, q) => p.d - q.d);
@@ -710,7 +719,7 @@ function fitSite(def, blocks, overlaps, net) {
   return null;
 }
 
-function interiorKind(d, q) {
+export function interiorKind(d, q) {
   const big = q.hx * q.hz * 4;
   if (d === 'media' || d === 'residencial') return big > 700 ? 'parqueBarrio' : 'patio';
   if (d === 'exclusiva') return 'patio';
@@ -722,7 +731,7 @@ function interiorKind(d, q) {
 }
 
 // Arquitectura de cada lote según el barrio y su posición (las esquinas tienen comercios)
-function chooseArch(dist, ctx) {
+export function chooseArch(dist, ctx) {
   const rng = new Rng(ctx.h);
   const pick = (list) => list[rng.int(0, list.length - 1)];
   const main = ctx.road && (ctx.road.cls === 'avenida' || ctx.road.cls === 'boulevard');
@@ -834,7 +843,7 @@ function registerSite(city, site, pt) {
 }
 
 // ---------------- calles cerradas (solo si quedara alguna) ----------------
-function buildCap(road, cp, hm) {
+export function buildCap(road, cp, hm) {
   const half = road.w / 2;
   const rot = Math.atan2(cp.dx, cp.dz);
   const y0 = hm.height(cp.x, cp.z);
@@ -912,7 +921,7 @@ function spotOK(city, x, z, front = 3, minGap = 2.6) {
 
 // ---------------- semáforos y señales de ALTO en los cruces del grafo vial ----------------
 const MAJOR = new Set(['avenida', 'boulevard']);
-function intersectionSigns(city, graph) {
+export function intersectionSigns(city, graph) {
   const { nodes } = graph;
   const segsOf = new Map();
   for (const sg of city.net.segs) { let a = segsOf.get(sg.road); if (!a) segsOf.set(sg.road, (a = [])); a.push(sg); }
@@ -997,7 +1006,7 @@ function addStop(city, p, r) {
 
 // ---------------- faroles, árboles de banqueta, paradas, bancas, hidrantes y autos estacionados ----------------
 const CAR_COLORS = [0xc0392b, 0x2c3e50, 0xecf0f1, 0x7f8c8d, 0x2980b9, 0x16a085, 0x8e44ad, 0xf39c12, 0x1b1b1b, 0xd35400];
-function streetFurniture(city, net, seed) {
+export function streetFurniture(city, net, seed) {
   const segsOf = new Map();
   for (const sg of net.segs) { let a = segsOf.get(sg.road); if (!a) segsOf.set(sg.road, (a = [])); a.push(sg); }
   for (const road of net.roads) {
@@ -1177,7 +1186,8 @@ function vegetation(city, net, seed) {
   }
 }
 
-function buildColliders(city) {
+// src = de dónde salen las cosas (toda la ciudad, o solo lo de una ciudad nueva que se agrega después)
+export function buildColliders(city, src = city) {
   const cols = city.colliders;
   const addPart = (o, p, y0) => {
     const c = Math.cos(o.rot || 0), s = Math.sin(o.rot || 0);
@@ -1203,10 +1213,10 @@ function buildColliders(city) {
   };
   // también son sólidos: mobiliario con medidas conocidas y columnas/postes decorativos altos
   const solid = (p) => p.col || (p.k === 'prop' && PROP_COL[p.type]) || (p.k === 'box' && (p.y || 0) < 1 && p.h >= 1.5 && Math.min(p.w, p.d) >= 0.12);
-  for (const lot of city.lots) for (const p of lot.parts) if (solid(p)) addPart(lot, p, lot.y0);
-  for (const site of city.sites) for (const p of site.parts) if (solid(p)) addPart(site, p, site.y0);
-  for (const cp of city.caps) for (const p of cp.parts) if (solid(p)) addPart(cp, p, cp.y0);
-  for (const pr of city.props) {
+  for (const lot of src.lots) for (const p of lot.parts) if (solid(p)) addPart(lot, p, lot.y0);
+  for (const site of src.sites) for (const p of site.parts) if (solid(p)) addPart(site, p, site.y0);
+  for (const cp of src.caps) for (const p of cp.parts) if (solid(p)) addPart(cp, p, cp.y0);
+  for (const pr of src.props) {
     if (!pr.col && !PROP_COL[pr.type]) continue;
     if (pr.type === 'palapa') { cols.push({ cx: pr.x, cz: pr.z, hx: 0.4, hz: 0.4, rot: 0, minY: pr.y - 1, maxY: pr.y + 3 }); continue; }
     const pc = PROP_COL[pr.type];

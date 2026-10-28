@@ -1,5 +1,7 @@
 // Prueba del generador de ciudad: node tools/test-city.js
 import { generateCity } from '../shared/city.js';
+import { URBAN_PLANS } from '../shared/citiesPlan.js';
+import { urbanInput, generateUrbanStandalone, mergeUrban } from '../shared/urban.js';
 import { CollisionGrid } from '../shared/collision.js';
 import { playable } from '../shared/terrain.js';
 import { SITE_DEFS } from '../shared/mapdata.js';
@@ -44,7 +46,7 @@ if (city.drops.length < 200) fail('muy pocas casas para entregar');
 
 // Ninguna casa sobre una calle
 let onRoad = 0;
-for (const l of city.lots) if (city.net.rectHitsRoad(l.cx, l.cz, l.w / 2 - 0.3, l.d / 2 - 0.3, l.rot, 0)) onRoad++;
+for (const l of city.lots) if (city.netAt(l.cx, l.cz).rectHitsRoad(l.cx, l.cz, l.w / 2 - 0.3, l.d / 2 - 0.3, l.rot, 0)) onRoad++;
 if (onRoad) fail(`${onRoad} lotes invaden una calle`);
 
 // Rayo contra un edificio alto
@@ -83,6 +85,23 @@ if (city.safeZones.length < 10) fail('muy pocas zonas seguras');
   console.log(`Red vial: ${roads.length} calles conectadas, ${caps} remates`);
 }
 
+// Ciudades nuevas: calles conectadas a su periférico, lotes y lugares
+for (const u of city.urban) {
+  const roads = u.net.roads, adj = new Map(roads.map((r) => [r, new Set()]));
+  for (const a of u.net.segs) for (const b of u.net.near(Math.min(a.ax, a.bx) - 3, Math.min(a.az, a.bz) - 3, Math.max(a.ax, a.bx) + 3, Math.max(a.az, a.bz) + 3)) {
+    if (a.road === b.road) continue;
+    const near = (px, pz, s) => { const dx = s.bx - s.ax, dz = s.bz - s.az, L = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((px - s.ax) * dx + (pz - s.az) * dz) / L)); return Math.hypot(s.ax + dx * t - px, s.az + dz * t - pz); };
+    if (near(a.ax, a.az, b) < b.road.w / 2 + 2 || near(a.bx, a.bz, b) < b.road.w / 2 + 2) { adj.get(a.road).add(b.road); adj.get(b.road).add(a.road); }
+  }
+  const start = roads.find((r) => r.external), seen = new Set([start]), q = [start];
+  while (q.length) for (const n of adj.get(q.pop())) if (!seen.has(n)) { seen.add(n); q.push(n); }
+  const lost = roads.filter((r) => !seen.has(r));
+  if (lost.length) fail(`${u.name}: ${lost.length} calles sin conexión con el periférico`);
+  const lots = city.lots.filter((l) => l.city === u.id), sites = city.sites.filter((s) => s.city === u.id);
+  if (lots.length < 400) fail(`${u.name}: muy pocos lotes (${lots.length})`);
+  console.log(`${u.name}: ${roads.length - 1} calles conectadas al periférico, ${u.blocks.length} manzanas, ${lots.length} lotes, ${sites.length} lugares`);
+}
+
 // Manzanas llenas: cada lote pertenece a una manzana (o a una carretera fuera de la ciudad) y no se enciman
 {
   let over = 0;
@@ -97,11 +116,23 @@ if (city.safeZones.length < 10) fail('muy pocas zonas seguras');
   let blind = 0;
   for (const l of L) {
     const fx = l.cx + Math.sin(l.rot) * (l.d / 2), fz = l.cz + Math.cos(l.rot) * (l.d / 2);
-    if (city.net.clearance(fx, fz).c > 12) blind++;
+    if (city.netAt(fx, fz).clearance(fx, fz).c > 12) blind++;
   }
   if (blind > L.length * 0.01) fail(`${blind} lotes sin frente a la calle`);
   const inBlocks = L.filter((l) => l.block >= 0).length;
   console.log(`Manzanas: ${city.blocks.length}, lotes en manzana: ${inBlocks}, a orilla de carretera: ${L.length - inBlocks}, lotes de frente a la calle: ${L.length - blind}/${L.length}`);
+}
+// El cliente genera las ciudades nuevas aparte (Web Worker): deben salir idénticas a las del servidor
+{
+  const base = generateCity(undefined, { urban: false });
+  for (const plan of URBAN_PLANS) mergeUrban(base, structuredClone(generateUrbanStandalone(urbanInput(base, plan))));
+  const sig = (c) => c.lots.filter((l) => l.city).map((l) => `${l.type}:${l.cx.toFixed(3)}:${l.cz.toFixed(3)}:${l.y0.toFixed(3)}`).join('|');
+  let hd = 0;
+  for (const u of city.urban) for (let x = u.box.x0 + 3; x < u.box.x1; x += 9.7) for (let z = u.box.z0 + 3; z < u.box.z1; z += 9.3) if (Math.abs(city.height(x, z) - base.height(x, z)) > 1e-4) hd++;
+  if (sig(base) !== sig(city)) fail('las ciudades nuevas generadas en el cliente no coinciden con las del servidor (lotes)');
+  if (hd) fail(`las ciudades nuevas generadas en el cliente no coinciden con las del servidor (${hd} alturas)`);
+  if (base.colliders.length !== city.colliders.length) fail(`colisiones distintas cliente/servidor: ${base.colliders.length} / ${city.colliders.length}`);
+  if (!hd && sig(base) === sig(city)) console.log('Ciudades nuevas: la versión del cliente (en segundo plano) coincide con la del servidor');
 }
 if (errors) { console.error(`${errors} errores`); process.exit(1); }
 console.log('OK: ciudad válida');

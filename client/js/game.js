@@ -22,6 +22,7 @@ import { Panels } from './ui/panels.js';
 import { applyIcons } from './ui/icons.js';
 import { DeliveryClient } from './jobs/deliveryClient.js';
 import { installDevTeleport } from './dev/teleport.js';   // DEV-TP
+import { loadUrbanCities } from './world/urbanLoader.js';
 
 export class Game {
   constructor({ settings, audio, session, onLogout, requestFullscreen }) {
@@ -43,7 +44,7 @@ export class Game {
 
   async init(progress) {
     progress(0.05, 'Generando la ciudad…');
-    this.city = getCity();
+    this.city = getCity(undefined, { urban: false });   // las ciudades nuevas llegan después (urbanLoader)
     this.dummies = this.city.dummies;
 
     progress(0.12, 'Preparando gráficos…');
@@ -113,6 +114,7 @@ export class Game {
     this.last = performance.now();
     requestAnimationFrame(this.frame);
     this.chat.add({ sys: true, m: `Bienvenido a Puerto Nova. Escribe /ayuda para ver comandos.` });
+    setTimeout(() => loadUrbanCities(this), 1500);   // ciudades nuevas en segundo plano
     if (this.physics.backend !== 'rapier') this.chat.add({ sys: true, m: 'Aviso: usando física de respaldo (Rapier no cargó).' });
   }
 

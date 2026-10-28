@@ -89,6 +89,12 @@ gasolineras, y recorridos con el colisionador del vehículo.
    - 3c (hecho): túnel de ~370 m de la Ruta de la Sierra bajo la cumbre (hasta ~180 m), con portales de
      concreto, bóveda iluminada, piso y muros con colisión; el terreno se abre solo en las bocas.
 4. Urbanismo: barrios y manzanas de las dos ciudades nuevas y de los pueblos.
+   - 4a (hecho): Ciudad Desértica. Periférico irregular, cinco avenidas radiales desde la Glorieta del Sol
+     (aeropuerto, mina, oasis), centro de edificios medianos, comercio en el bulevar, residenciales al sur
+     y noreste, colonia popular al noroeste, industria al sureste y residencias amplias al norte; ~1450 lotes.
+     El cliente la genera en segundo plano (Web Worker) para no alargar la carga en celulares.
+   - 4b: Ciudad Montañosa (calles en curva y terrazas sobre las laderas).
+   - 4c: pueblos.
 5. Construcción: edificios con arquitectura propia por región (montaña / desierto).
 6. Decoración: vegetación por región, señales, mobiliario.
 7. Iluminación nocturna por zona (centro más iluminado, carreteras rurales oscuras).

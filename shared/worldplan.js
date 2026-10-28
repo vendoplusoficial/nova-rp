@@ -126,7 +126,8 @@ export const HIGHWAYS_PLAN = [
 // periféricos (anillos cerrados alrededor de cada ciudad nueva; el de Puerto Nova ya existe)
 export const RINGS_PLAN = [
   { city: 'montana', name: 'Periférico de la Sierra', pts: WL([[170, 230], [300, 222], [420, 230], [425, 320], [420, 385], [300, 388], [178, 385], [160, 320]]) },
-  { city: 'desierto', name: 'Circuito del Desierto', pts: WL([[848, 168], [990, 160], [1138, 168], [1142, 290], [1138, 412], [990, 418], [848, 412], [842, 290]]) },
+  // trazo irregular (no un rectángulo): se adapta a la llanura y a las salidas hacia el oasis, la mina y el aeropuerto
+  { city: 'desierto', name: 'Circuito del Desierto', pts: WL([[860, 178], [935, 184], [1015, 170], [1095, 160], [1140, 205], [1132, 290], [1144, 375], [1120, 416], [1020, 402], [940, 418], [862, 404], [842, 330], [850, 250]]) },
 ];
 // caminos a pueblos, miradores y lugares (los de tierra son explorables)
 export const ROADS_PLAN = [

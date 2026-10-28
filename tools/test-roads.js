@@ -96,7 +96,8 @@ for (let a = 0; a < net.roads.length; a++) for (let b = a + 1; b < net.roads.len
 if (!crossings) ok('todos los cruces entre vías están a la misma altura');
 
 // Puerto Nova no cambia
-if (city.lots.length !== 925 || city.sites.length !== 189) fail(`Puerto Nova cambió: ${city.lots.length} lotes, ${city.sites.length} sitios`);
+const pnLots = city.lots.filter((l) => !l.city).length, pnSites = city.sites.filter((s) => !s.city).length;
+if (pnLots !== 925 || pnSites !== 189) fail(`Puerto Nova cambió: ${pnLots} lotes, ${pnSites} sitios`);
 else ok('Puerto Nova intacto (925 lotes, 189 sitios)');
 
 if (errors) { console.log(`\n${errors} ERROR(ES) en la red vial`); process.exit(1); }
