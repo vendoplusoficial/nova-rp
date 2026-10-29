@@ -9,6 +9,7 @@ import { PROTO, FAR_SKIP } from './props.js';
 import { drawHighwayPiece, drawPier } from './highwayRenderer.js';
 import { renderParts } from './parts.js';
 import { getAtlas, getAtlasNight } from './atlas.js';
+import { makeSurfaceMaterials } from './surfaceMaterials.js';
 import { WORLD_MIN_X, WORLD_MIN_Z, WORLD_MAX_X, WORLD_MAX_Z, regionAt, lakeShape, lakeLevel, riverAt, playable, landDist, lakeDist, isSandy, coastLines, LAKE_LEVEL, fbm } from '/shared/terrain.js';
 import { LAKE } from '/shared/mapdata.js';
 import { LAKES_PLAN, RIVERS_PLAN } from '/shared/worldplan.js';
@@ -23,9 +24,9 @@ const LINE_W = 0xe9e9e4, LINE_Y = 0xe8c547;
 
 // Color del suelo por barrio (se ve entre lotes, en camellones y en el campo)
 const GROUND = {
-  centro: 0xb5ad9e, comercial: 0xaaa597, media: 0x74a454, popular: 0x99916a, residencial: 0x70a250, sur: 0xa59f8c,
-  costa: 0x8aa85f, playa: 0x93ad66, puerto: 0x8e8c86, industrial: 0x939089, aeropuerto: 0x86a05a, exclusiva: 0x67a84b,
-  presa: 0x5f9a45, montana: 0x6b8f48, isla: 0x78a452, prision: 0x9a978c, campo: 0x6e9b4a,
+  centro: 0xb5ad9e, comercial: 0xaaa597, media: 0x728058, popular: 0x99916a, residencial: 0x738259, sur: 0xa59f8c,
+  costa: 0x8aa85f, playa: 0x93ad66, puerto: 0x8e8c86, industrial: 0x939089, aeropuerto: 0x86a05a, exclusiva: 0x6c8055,
+  presa: 0x5f9a45, montana: 0x6b8f48, isla: 0x78a452, prision: 0x9a978c, campo: 0x79815a,
 };
 const UP = [0, 1, 0], BLACK = [0, 0, 0];
 // faroles: dónde está la cabeza (m hacia +Z local), radio y color del charco de luz
@@ -43,7 +44,7 @@ function planShore(x, z, h) {
   for (const R of RIVERS_PLAN) { const rv = riverAt(R, x, z); if (rv && rv.d < R.width / 2 + 7) return 0x8e8a76; }
   return null;
 }
-const inFineArea = (x, z) => x > -960 && x < 960 && z > -960 && z < 896;
+const inFineArea = (x, z) => x >= WORLD_MIN_X && x <= WORLD_MAX_X && z >= WORLD_MIN_Z && z <= WORLD_MAX_Z;
 const clampI = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smoothstepC = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const DETAIL_PROPS = new Set(['bench', 'bin', 'umbrellaBeach', 'towel', 'volleyball', 'buoy', 'mailbox', 'grill', 'lounger', 'crates', 'planter']);
@@ -59,6 +60,7 @@ export class CityRenderer {
     this.winTex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     // de noche las ventanas encendidas brillan (mapa emisivo) y los focos de vértice "luz" también
     this.matWin = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.winTex, emissive: 0xffffff, emissiveMap: winNight, emissiveIntensity: 0 });
+    this.surfaces = makeSurfaceMaterials(renderer);
     this.matPlain = glowMaterial(new THREE.MeshLambertMaterial({ vertexColors: true }));
     this.matAtlas = new THREE.MeshLambertMaterial({ vertexColors: true, map: getAtlas(renderer), emissive: 0xffffff, emissiveMap: getAtlasNight(renderer), emissiveIntensity: 0 });
     // charcos de luz bajo los faroles (aditivos; solo de noche)
@@ -241,8 +243,11 @@ export class CityRenderer {
     if (kind === 'base') {
       const far = lod === 'far';
       const W = new GeoBuilder(true);
-      this.terrain(P, t, far);
-      for (const pc of t.pieces) this.roadPiece(P, pc, far);
+      const ground = new GeoBuilder(false), streets = new GeoBuilder(false);
+      this.terrain(ground, t, far);
+      for (const pc of t.pieces) this.roadPiece(streets, pc, far);
+      if (ground.vertexCount) group.add(staticMesh(ground.build(), this.surfaces.terrain));
+      if (streets.vertexCount) group.add(staticMesh(streets.build(), this.surfaces.road));
       for (const pc of t.hw) drawHighwayPiece(P, this.city, pc, far);
       for (const pr of t.piers) drawPier(P, pr, far);
       for (const l of t.lots) renderParts(P, W, l, l.parts, false, null, far, T);
@@ -385,22 +390,13 @@ export class CityRenderer {
   // slope = pendiente (desnivel / distancia). Roca y tierra se mezclan poco a poco con el pasto.
   groundColor(x, z, h, slope) {
     const n = fbm(x * 0.03, z * 0.03, 5, 2);
-    let base, reg, shore;
+    let base, shore;
     const ld = landDist(x, z);
     if (h < 0.15) base = 0xbfae82;                                         // fondo cerca de la orilla
     else if (isSandy(x, z) && ld < 70 && h < 4) base = mixHex(0xd9c693, 0xe6d6a8, smoothstepC(0.5, 1.1, h));   // playa
     else if (lakeDist(x, z) > -4 && h < LAKE_LEVEL + 1.5) base = 0xa99d7c;  // orilla del lago
     else if (!inFineArea(x, z) && (shore = planShore(x, z, h))) base = shore;               // orillas de lagos y río
-    else if ((reg = regionAt(x, z)) === 'desierto') {
-      // desierto: arena dorada, tierra ocre y roca rojiza en las laderas y terrazas
-      const k = fbm(x * 0.004, z * 0.004, 91, 3);
-      base = mixHex(0xd8b878, 0xc9a066, smoothstepC(-0.2, 0.3, k));
-      base = mixHex(base, 0xe3c58b, smoothstepC(0.15, 0.45, fbm(x * 0.012, z * 0.012, 93, 2)));
-      base = mixHex(base, 0xb5784a, smoothstepC(0.25, 0.6, slope));
-      base = mixHex(base, 0x8a5136, smoothstepC(0.7, 1.2, slope));
-      base = mixHex(base, 0xa86a42, smoothstepC(25, 70, h) * 0.5);                             // estratos altos más rojizos
-      if (ld < 30 && h < 3) base = mixHex(0xe6d3a0, base, ld / 30);
-    } else if (reg === 'montana' && !inFineArea(x, z)) {
+    else if (h > 48) {
       // montaña: pastizal en los valles, bosque oscuro en las laderas, roca y pradera alpina arriba
       base = h > 140 ? mixHex(0x5e7a45, 0x8f9a7a, smoothstepC(140, 220, h)) : mixHex(0x5f8f45, 0x3c6a37, smoothstepC(20, 80, h));
       base = mixHex(base, 0x4f7536, smoothstepC(-0.1, 0.4, fbm(x * 0.008, z * 0.008, 95, 2)) * 0.5);
@@ -414,11 +410,11 @@ export class CityRenderer {
       if (ld < 14 && h < 5) base = 0x9a9077;                               // acantilado / costa rocosa
     } else {
       const d = districtAt(x, z);
-      base = GROUND[d] ?? 0x6e9f4c;
+      base = GROUND[d] ?? 0x79805a;
       // barrio popular y campo: manchas de pasto entre la tierra (no un llano uniforme)
       if (d === 'popular' || d === 'campo' || d === 'montana') base = mixHex(base, d === 'popular' ? 0x86a058 : 0x7f9a50, smoothstepC(-0.05, 0.15, fbm(x * 0.06, z * 0.06, 9, 2)));
       // taludes: con pasto (no pavimento) y tierra en lo muy empinado
-      base = mixHex(base, 0x6f9c4b, smoothstepC(0.18, 0.45, slope));
+      base = mixHex(base, 0x7b805a, smoothstepC(0.18, 0.45, slope));
       base = mixHex(base, 0x9a8f74, smoothstepC(0.75, 1.2, slope));
     }
     return shade(base, 0.94 + n * 0.12);
@@ -509,7 +505,7 @@ export class CityRenderer {
       }
     }
     // pasos de cebra a la entrada de los cruces
-    if (road.cls !== 'callejon' && road.cls !== 'subida' && road.w >= 8 && seg.L >= 20) {
+    if (road.cls !== 'autopista' && road.cls !== 'callejon' && road.cls !== 'subida' && road.w >= 8 && seg.L >= 20) {
       for (const [f0, f1] of seg.free.c) {
         for (const [edge, dir] of [[f0 * seg.L, 1], [f1 * seg.L, -1]]) {
           if (edge <= 0.5 && dir > 0) continue;

@@ -1,23 +1,15 @@
-# Mapa nuevo de Puerto Nova: estado del trabajo (26 oct 2026)
+# Mapa insular: estado del trabajo
 
-Reconstrucción del mapa desde cero siguiendo el plano de referencia (montañas, presa y lago, zona exclusiva,
-aeropuerto, zona industrial con puerto, centro, barrios, zona comercial, costa, playa sur e islas).
+El mapa anterior de tres regiones separadas se reemplaza por una adaptación del plano «Distrito costero tropical desarrollado.png».
 
-## Cómo se construye (orden obligatorio)
-1. **Terreno** (`shared/terrain.js` + `shared/mapdata.js`): tierra firme, islas, sierra, lomas, presa/lago, río, playas, calzadas y muelles.
-2. **Calles y avenidas** (`shared/roads.js`): avenidas trazadas a mano por nodos compartidos (curvas que pasan exactamente por los cruces), 3 glorietas y calles de barrio con trama propia. `resolveDeadEnds` + `keepConnected`: ninguna calle suelta.
-3. **Manzanas** (`shared/blocks.js`): caras cerradas del grafo vial, encogidas por el ancho de calle + banqueta.
-4. **Terrenos**: los lugares importantes ocupan su terreno en la manzana más cercana a su punto del plano, de frente a la avenida; después se reparten lotes a lo largo de cada frente (esquinas con comercio) y el centro de la manzana se aprovecha (patios, estacionamientos, parques, canchas, huertas).
-5. **Edificios** según las reglas de cada barrio (`chooseArch` en `shared/city.js`).
-6. **Detalles**: semáforos y ALTO en los nodos del grafo vial, faroles por barrio, árboles de banqueta, hidrantes, bancas, autos estacionados, playa (sombrillas, salvavidas, palapas) y bosques en la sierra.
+- Isla principal con bahía y playa sur, lago oriental, desagüe, isla suroeste y tres islotes.
+- Sierra al norte y centro con crestas, valles y estribaciones; colinas en los distritos exteriores.
+- Área de 6 × 6 km y escala uniforme, sin deformar la imagen.
+- 27 vías exteriores conectadas al núcleo costero; cuatro pasos transitables sobre agua.
+- Calles niveladas antes de colocar lotes; corrección de escalones en los cruces de montaña.
+- Texturas pequeñas de hierba, roca, arena y asfalto, proyectadas en coordenadas del mundo.
+- Servicios existentes recolocados; controles, sensibilidad, autoapuntado y reglas del servidor conservados.
 
-## Zonas seguras y aparición
-- `SAFE_ZONES` en `shared/mapdata.js`. Se aparece en la Plaza Central (zona segura).
-- Servidor: no procesa disparos desde una zona segura ni hace daño a quien está en una.
-- Cliente: aviso "ZONA SEGURA" y botones de arma atenuados; círculos verdes en el mapa.
-- `MAP_VERSION` (constants.js): al cambiarlo, los jugadores guardados reaparecen en la plaza y su bici vuelve a casa.
+La geografía y las vías exteriores se trazan a mano. El núcleo costero conserva la generación de calles locales y edificios del sistema anterior, adaptada al nuevo emplazamiento. Por tanto, no es una copia exacta de cada calle u objeto de la ilustración.
 
-## Pendiente (siguientes etapas)
-- Trabajos nuevos en los lugares (aeropuerto, puerto, mina, granja, taller...). Hoy solo existen las estructuras.
-- Interiores.
-- Más calles internas en la Zona Exclusiva (las lomas son muy empinadas; hoy las mansiones están sobre el Camino Real y el Paseo de los Pinos).
+La descripción técnica y las limitaciones están en [docs/PLAN_MUNDO.md](docs/PLAN_MUNDO.md).

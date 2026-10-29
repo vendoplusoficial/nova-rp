@@ -20,10 +20,8 @@ export class Minimap {
     this.city = city;
     // dos capas: Puerto Nova en detalle (0.8 px/m, con edificios) y el mundo completo ligero
     // (0.22 px/m) para las otras regiones y el mapa grande
-    this.layers = {
-      city: this.renderBase({ x0: TERRAIN_MIN, z0: TERRAIN_MIN, x1: TERRAIN_MAX_X, z1: TERRAIN_MAX_Z }, 0.8, 4, true),
-      world: this.renderBase({ x0: WORLD.x0, z0: WORLD.z0, x1: WORLD.x1, z1: WORLD.z1 }, 0.22, 8, false),
-    };
+    const layer = this.renderBase(WORLD, 0.22, 8, true);
+    this.layers = { city: layer, world: layer };
     this.use(this.layers.city);
     this.zoom = 0.75;
   }
@@ -70,6 +68,18 @@ export class Minimap {
         col = hexRgb(DISTRICTS[d]?.mapColor || '#6f7f6a');
         col = col.map((v) => Math.round(v * 0.82 + 30));
       }
+      // Relieve sombreado: la sierra y las colinas se leen también en el mapa completo.
+      if (h > 4 && lakeDist(x,z) < -4) {
+        const dx = (c.height(x+8,z)-c.height(x-8,z))/16;
+        const dz = (c.height(x,z+8)-c.height(x,z-8))/16;
+        const slope = Math.hypot(dx,dz);
+        const shade = Math.max(0.55,Math.min(1.18,(0.92-dx*0.28-dz*0.2)/Math.sqrt(1+slope*slope)));
+        if (h > 35) {
+          const rock = Math.min(0.8,Math.max(0,(h-50)/180)+Math.max(0,slope-0.35)*0.4);
+          col = col.map((v,k)=>v*(1-rock)+[130,126,110][k]*rock);
+        }
+        col=col.map(v=>Math.round(v*shade));
+      }
       const o = (j * tw + i) * 4;
       img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = 255;
     }
@@ -90,7 +100,7 @@ export class Minimap {
     const roads = [...c.roads, ...(c.urban || []).flatMap((u) => u.net.roads.filter((r) => !r.external))].sort((a, b) => a.w - b.w);
     for (const pass of [0, 1]) {
       for (const r of roads) {
-        const main = ['avenida', 'boulevard'].includes(r.cls);
+        const main = ['autopista','avenida', 'boulevard'].includes(r.cls);
         g.strokeStyle = pass === 0 ? 'rgba(0,0,0,0.25)' : main ? '#f3d98f' : r.cls === 'callejon' ? '#cfcac0' : '#ecebe6';
         g.lineWidth = Math.max(1.5, (pass === 0 ? r.w + 2 : r.w) * s);
         g.beginPath();

@@ -1,101 +1,43 @@
-# Plan maestro del mundo de Nova RP (etapa 1: planificación)
+# Plano maestro insular de Nova RP
 
-Referencia: la imagen del mapa con las tres regiones (Costera abajo, Montañosa arriba a la
-izquierda, Desértica arriba a la derecha). Plano trazado en `shared/worldplan.js`, validado y
-dibujado con `node tools/plan-world.js docs/plan-mundo.svg`.
+Referencia visual: **Distrito costero tropical desarrollado.png** (1536 × 1024 píxeles).
+El trazado es una adaptación manual de esa imagen, no una reconstrucción exacta de cada edificio o calle.
 
-![plano](plan-mundo.png)
+## Escala y orientación
 
-## 1. Escala y coordenadas
+- Área del mundo: 6000 × 6000 metros, con límites X/Z de −3000 a +3000.
+- Un metro del juego equivale a un metro del plano.
+- Escala uniforme: 6000 / 1536 = 3.90625 metros por píxel en ambos ejes.
+- X positivo al este; Z positivo al sur; Y positivo hacia arriba; mar en Y = 0.
+- La imagen ocupa 6000 × 4000 metros centrados en el mundo. El espacio restante es mar: no se deforma la referencia para volverla cuadrada.
+- Conversión: `M(px, py) = [(px − 768) × 3.90625, (py − 512) × 3.90625]`.
+- `unM(x, z)` realiza la transformación inversa.
 
-- **4.4 m por píxel de la imagen.** Con esta escala la ciudad actual (Puerto Nova) cae exactamente
-  donde la imagen dibuja la Ciudad Costera, con su puerto, playas e islas en su lugar.
-- Mundo completo: **~5.8 km × 5.2 km** (compacto, del tamaño de San Andreas).
-- La barra de escala dibujada en la imagen ("0–3 km") daría ~25 km: se descarta porque el mundo
-  sería enorme y la ciudad actual quedaría diminuta.
-- Coordenadas: las mismas del juego actual (+X este, +Z sur, metros). La ciudad actual no se mueve.
+## Geografía y calles
 
-## 2. Regiones, ciudades y pueblos
+`shared/masterMap.js` contiene la costa de la isla principal, la isla suroeste y tres islotes, el contorno del lago oriental, su desagüe, cuatro cruces transitables de agua, muelles, playas, cinco sierras/estribaciones y cinco colinas.
 
-| Región | Ciudad principal | Pueblos y lugares |
-|---|---|---|
-| Costera (abajo) | Puerto Nova (la actual) | Pueblo del Lago, Pueblo Costero, Pueblo Rural, Rancho, Planta Eléctrica |
-| Montañosa (arriba izq.) | Ciudad Montañosa (con puerto al sur) | Pueblo Alto, Pueblo del Bosque, Pueblo Lago Verde, Mirador, Central Hidroeléctrica |
-| Desértica (arriba der.) | Ciudad Desértica | Pueblo Oasis, Pueblo Ruta, Pueblo Minero, Mina, **Aeropuerto Internacional** |
+Las 27 vías exteriores se trazaron mediante puntos de control. Incluyen las autopistas del Norte y del Lago, caminos de sierra, rutas alrededor del lago, el circuito oriental y el acceso a la isla. Las curvas pasan por sus puntos de control y se integran a la red vial común.
 
-- Las regiones están separadas por mar (validado: ningún polígono se encima con otro).
-- Cada pueblo está fuera de su ciudad, en tierra de su región y con camino (validado).
+`shared/mapdata.js` adapta los barrios y servicios existentes al núcleo costero de la referencia. Conserva su generador de calles locales y de manzanas, así como los modelos de edificios. Esta parte es una adaptación del núcleo urbano anterior: las calles locales no son una vectorización exacta de la imagen. El aeropuerto, puerto, faro, prisión, mina y otros servicios tienen nuevas posiciones para evitar que aparezcan en el mar o bloqueen las vías.
 
-## 3. Red vial principal
+El antiguo esquema de tres islas/regiones separadas queda sustituido por distritos de la misma isla. Los identificadores `costera`, `montana` y `desierto` se mantienen para compatibilidad con el teletransporte de desarrollo; el último ahora identifica el Distrito Oriental, que tiene vegetación y no es un desierto.
 
-- **A1 Autopista del Poniente** (Puerto Nova → Montañosa): sale del Anillo Periférico, rodea el
-  lago por el sur, pasa por Pueblo del Lago y cruza al noroeste por un puente de ~640 m.
-- **A2 Autopista Central** (Puerto Nova → Montañosa): sale al norte por la Av. Juárez, pasa junto
-  al Rancho y cruza por un puente de ~540 m.
-- **A3 Autopista del Norte** (Montañosa → Desértica): puente de ~620 m.
-- **A4 Autopista del Oriente** (Puerto Nova → Desértica): pasa por el Pueblo Rural, puente de ~620 m.
-- **C1 Carretera de la Hidroeléctrica** (Montañosa → Desértica): segundo puente, ~840 m.
-- Periféricos: el Anillo de Puerto Nova (ya existe), el Periférico de la Sierra y el Circuito del
-  Desierto.
-- Caminos secundarios y de terracería a cada pueblo, mirador, rancho, mina y aeropuerto; la Ruta de
-  la Sierra lleva un túnel.
+## Relieve, circulación y materiales
 
-## 4. Qué pasa con la ciudad actual
+1. La malla de 4 m genera la costa, cuencas y relieve con crestas fractales; las carreteras se nivelan antes de colocar lotes.
+2. `shared/roadGrading.js` limita las diferencias de altura entre celdas de calle con una envolvente de Lipschitz y suaviza la transición al terreno vecino. Evita los escalones que dejaban los encuentros entre caminos de la sierra.
+3. El terreno y las calles siguen siendo compartidos por servidor y cliente. Las barreras de agua siguen activas y los accesos a las islas son transitables.
+4. `client/js/world/surfaceMaterials.js` crea una textura RGBA de 128 × 128 píxeles para hierba, roca, arena y asfalto. La proyección mundial triplanar evita costuras en las laderas. Usa mipmaps y anisotropía limitada.
+5. La geometría sigue fusionada por mosaicos de 64 m, con detalle cercano y lejano. No hay sombras dinámicas ni objetos individuales para dibujar cada hoja o piedra.
+6. El minimapa usa una sola capa de aproximadamente 1320 × 1320 píxeles para limitar la memoria del canvas en móviles.
 
-- **Se conserva todo:** barrios, calles, sitios, puerto, playas, islas del faro y de la prisión,
-  presa y su lago, concesionarios.
-- La costa sur y este de la ciudad no cambian. Al norte, oeste y noreste se agrega el campo de la
-  Región Costera (el borde norte/oeste actual queda tierra adentro).
-- **El aeropuerto se muda a la Región Desértica** (como en la imagen). Su terreno actual (noreste)
-  queda como zona industrial y de carga junto al Pueblo Rural.
+Se incrementa `MAP_VERSION` a 8 para que los perfiles existentes reaparezcan en la plaza después de cambiar las coordenadas.
 
-## 5. Arquitectura técnica (para que funcione en celulares)
+## Verificación y límites
 
-El mundo es ~11 veces más grande que el mapa actual. Generarlo todo al cargar no es viable en un
-celular, así que:
+- `npm test` valida la escala, los límites y regiones del plano; las apariciones, servicios, calles conectadas y lotes; ambos carriles de cada vía exterior; y el servidor con jugadores simulados.
+- `tools/test-roads.js` comprueba cada vía exterior cada 4 m en tres posiciones laterales: tierra transitable, suelo sobre el agua, obstáculos y pendientes.
+- El rendimiento en un Android físico y la fidelidad visual respecto de la ilustración requieren revisión en dispositivo. Una captura o una prueba en Chromium no garantizan 30 FPS en todos los teléfonos.
 
-1. **Una región = un generador independiente** (terreno, calles, manzanas, lotes, sitios). El
-   cliente genera primero la región donde está el jugador y las otras en segundo plano.
-2. **Terreno de dos resoluciones:** 4 m en ciudades y pueblos, 8 m en montañas, desierto y campo.
-3. Se mantienen los mosaicos de 64 m con LOD que ya existen (solo se dibuja lo cercano), los
-   materiales compartidos y la geometría fusionada.
-4. El servidor genera las tres regiones al arrancar (validación de movimiento, disparos y trabajos)
-   y no cambia el protocolo multijugador.
-5. Los puentes y autopistas entre regiones forman una red propia que une las tres redes de calles.
-
-## 6. Validación vial (obligatoria)
-
-`node tools/plan-world.js` ya corre dentro de `npm test`:
-
-- regiones separadas por mar; ciudades y pueblos dentro de su región;
-- carreteras sobre tierra; puentes con ambos extremos en tierra y cruzando agua;
-- grafo vial: ruta entre las tres ciudades y acceso a cada pueblo y lugar.
-
-En las etapas 3 y 4 se agrega la validación física sobre la red construida: pendientes máximas,
-curvas imposibles, cruces falsos, calles duplicadas, accesos a hospitales, comisarías y
-gasolineras, y recorridos con el colisionador del vehículo.
-
-## 7. Etapas siguientes
-
-1. ~~Planificación~~ (este documento)
-2. ~~Geografía~~: costas de las tres regiones, montañas (cordilleras, cañones), lagos, río, playas,
-   desierto y vegetación natural por región (`shared/vegetation.js`).
-3. Red vial: autopistas, puentes con soportes y barandal, periféricos, caminos; validación física.
-   - 3a (hecho): A1–A4, C1 y los periféricos de las dos ciudades nuevas, con puentes (tablero, pilas,
-     barandal y faroles). Las salidas de Puerto Nova se recalcularon para no cruzar lotes, la presa,
-     el club de golf ni el aeropuerto: A1 sale del Anillo al poniente; A2 y A4 de la Av. del Aeropuerto.
-   - 3b (hecho): 14 caminos secundarios y de terracería a pueblos y lugares, con enlaces reales (la
-     Carretera Pueblo Rural sale de la A4 y vuelve a ella). Validación: todo cruce a la misma altura.
-   - 3c (hecho): túnel de ~370 m de la Ruta de la Sierra bajo la cumbre (hasta ~180 m), con portales de
-     concreto, bóveda iluminada, piso y muros con colisión; el terreno se abre solo en las bocas.
-4. Urbanismo: barrios y manzanas de las dos ciudades nuevas y de los pueblos.
-   - 4a (hecho): Ciudad Desértica. Periférico irregular, cinco avenidas radiales desde la Glorieta del Sol
-     (aeropuerto, mina, oasis), centro de edificios medianos, comercio en el bulevar, residenciales al sur
-     y noreste, colonia popular al noroeste, industria al sureste y residencias amplias al norte; ~1450 lotes.
-     El cliente la genera en segundo plano (Web Worker) para no alargar la carga en celulares.
-   - 4b: Ciudad Montañosa (calles en curva y terrazas sobre las laderas).
-   - 4c: pueblos.
-5. Construcción: edificios con arquitectura propia por región (montaña / desierto).
-6. Decoración: vegetación por región, señales, mobiliario.
-7. Iluminación nocturna por zona (centro más iluminado, carreteras rurales oscuras).
-8. Optimización y pruebas en el juego.
+El comando `node tools/plan-world.js docs/plan-mundo.svg` genera un plano técnico de las polilíneas. Ese SVG es un diagnóstico del código; la referencia artística sigue siendo la imagen original.
