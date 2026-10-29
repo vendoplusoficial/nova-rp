@@ -12,12 +12,12 @@ import { REGIONS, WORLD_PLAN_BOUNDS, RANGES_PLAN, LAKES_PLAN, RIVERS_PLAN, BEACH
 
 export const SEA_LEVEL = 0;
 export const TERRAIN_RES = 4;                 // metros por celda de la malla fina (Puerto Nova)
-export const TERRAIN_MIN = -960, TERRAIN_MAX_X = 960, TERRAIN_MAX_Z = 896;
+export const TERRAIN_MIN = -3072, TERRAIN_MAX_X = 3072, TERRAIN_MAX_Z = 3072;
 // malla gruesa del mundo completo (8 m), alineada con la fina y con los mosaicos de 64 m
 export const COARSE_RES = 8;
-export const WORLD_MIN_X = -3136, WORLD_MIN_Z = -3712, WORLD_MAX_X = 2752, WORLD_MAX_Z = 1536;
+export const WORLD_MIN_X = -3072, WORLD_MIN_Z = -3072, WORLD_MAX_X = 3072, WORLD_MAX_Z = 3072;
 // zona jugable del mundo (la valla invisible va en la orilla; esto solo limita el mar abierto)
-export const WORLD = { x0: WORLD_PLAN_BOUNDS.x0 + 30, x1: WORLD_PLAN_BOUNDS.x1 - 30, z0: WORLD_PLAN_BOUNDS.z0 + 30, z1: WORLD_PLAN_BOUNDS.z1 - 30 };
+export const WORLD = { ...WORLD_PLAN_BOUNDS };
 // ¿(x,z) está dentro de la malla fina de Puerto Nova?
 export const inFine = (x, z) => x >= TERRAIN_MIN && x <= TERRAIN_MAX_X && z >= TERRAIN_MIN && z <= TERRAIN_MAX_Z;
 
@@ -141,16 +141,17 @@ function buildFields(G) {
   const land = new Uint8Array(n), lake = new Uint8Array(n), sandy = new Uint8Array(n), region = new Uint8Array(n);
   scanFill(G, land, MAINLAND, 1);
   for (const r of REGIONS) scanFill(G, land, r.coast, 1);
-  REGIONS.forEach((r, i) => scanFill(G, region, r.coast, i + 1));
   scanFill(G, region, MAINLAND, 1);
+  REGIONS.forEach((r, i) => scanFill(G, region, r.coast, i + 1));
   for (const is of ISLANDS) scanFill(G, land, is.pts, 1);
+  stampLine(G, land, RIVER.pts, RIVER.width / 2, 0);
   for (const c of CAUSEWAYS) stampLine(G, land, c.pts, c.width / 2, 1);
   for (const p of PIERS) if (p.h < 5) stampLine(G, land, p.pts, p.width / 2, 1);
-  stampLine(G, land, RIVER.pts, RIVER.width / 2, 0);
   scanFill(G, lake, LAKE.pts, 1);
+  for (const c of CAUSEWAYS) stampLine(G, lake, c.pts, c.width / 2, 0);
   for (const s of SANDY) scanFill(G, sandy, s, 1);
   for (const b of BEACHES_PLAN) scanFill(G, sandy, b.pts, 1);
-  const desert = REGIONS.find((r) => r.id === 'desierto');
+  const desert = REGIONS.find((r) => r.style === 'desierto');
   if (desert) scanFill(G, sandy, desert.coast, 1);              // el desierto es todo arena
   return { G, land, lake, sandy, region, dist: signedDistance(G, land), lakeD: signedDistance(G, lake) };
 }
@@ -284,7 +285,7 @@ function baseCore(x, z) {
       if (!inBox(r.bb, x, z)) continue;
       const dd = distToPolyline(r.pts, x, z);
       // perfil de campana (cresta redondeada, sin pico) con ondulación suave a lo largo de la sierra
-      if (dd < r.w) { const t = 1 - dd / r.w; h += r.h * t * t * (3 - 2 * t) * (0.8 + 0.45 * fbm(x * 0.008, z * 0.008, 11, 2)); }
+      if (dd < r.w) { const t = 1 - dd / r.w; h += r.h * t * t * (3 - 2 * t) * (0.58 + 0.65 * ridged(x * 0.0035, z * 0.0035, 61, 3)) + 4 * t * fbm(x * 0.013, z * 0.013, 11, 2); }
     }
     for (const hl of HILLS) {
       const dd = Math.hypot(x - hl.at[0], z - hl.at[1]);
@@ -310,7 +311,7 @@ function baseCore(x, z) {
   for (const c of CAUSEWAYS) {
     if (!inBox(c.bb, x, z)) continue;
     const cd = distToPolyline(c.pts, x, z);
-    if (cd < c.width / 2 + 7) h = Math.max(h, cd < c.width / 2 ? 1.6 : lerp(1.6, -2, (cd - c.width / 2) / 7));
+    if (cd < c.width / 2 + 7) { const deck = c.h ?? 1.6; h = Math.max(h, cd < c.width / 2 ? deck : lerp(deck, -2, (cd - c.width / 2) / 7)); }
   }
   for (const p of PIERS) {
     if (!inBox(p.bb, x, z)) continue;
@@ -571,7 +572,7 @@ export class Heightmap {
 export class WorldTerrain {
   constructor(fine) {
     this.fine = fine;
-    this.coarse = new Heightmap(COARSE, 2);
+    this.coarse = Heightmap.sampled({ x0: WORLD_MIN_X, z0: WORLD_MIN_Z, x1: WORLD_MAX_X, z1: WORLD_MAX_Z }, COARSE_RES, (x, z) => fine.height(x, z));
     this.extra = [];   // mallas finas (4 m) de las ciudades nuevas
   }
   // malla fina de una ciudad nueva que contiene (x,z), o null

@@ -3,6 +3,17 @@
 Este archivo lo leen automáticamente los agentes de código (por ejemplo Codex) al trabajar en
 este repositorio. Describe cómo está hecho el proyecto y las reglas para modificarlo.
 
+## Mapa vigente (versión 8)
+El plano actual es insular y usa un área de 6 × 6 km. La fuente de geografía y vías exteriores
+es `shared/masterMap.js`; `shared/mapdata.js` adapta los barrios y servicios del núcleo costero.
+Leer `docs/PLAN_MUNDO.md` antes de modificar coordenadas. La malla fina de 4 m cubre ahora todo
+el plano; `shared/roadGrading.js` nivela los corredores antes de colocar edificios.
+`worldplan.js` conserva identificadores de distritos para compatibilidad; las listas de autopistas
+regionales y `URBAN_PLANS` están vacías porque la isla usa una sola red vial. Las descripciones
+históricas de ciudades cargadas por worker y túneles más abajo documentan sistemas reutilizables,
+no ciudades adicionales activas en este plano. Las texturas de terreno y calles están en
+`client/js/world/surfaceMaterials.js`. No reactivar el plano antiguo de tres islas al cambiar el mapa.
+
 ## Proyecto
 **Nova RP**: juego multijugador de roleplay urbano 3D para navegadores móviles (prioridad Android/Chrome).
 - Cliente: Three.js 0.170 (módulos ES sin empaquetador, `client/index.html` usa un *import map*).

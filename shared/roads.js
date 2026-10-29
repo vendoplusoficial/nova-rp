@@ -10,6 +10,7 @@ import { playable, pointInPoly, polyDist } from './terrain.js';
 import { MAIN_ROADS, ROUNDABOUTS, STREET_RULES, ZONES } from './mapdata.js';
 
 export const ROAD_CLASSES = {
+  autopista: { w:22, sw:2, mark:'yellow2' },
   avenida: { w: 15, sw: 4, mark: 'yellow2' },
   boulevard: { w: 14, sw: 6, mark: 'yellow2' },
   glorieta: { w: 11, sw: 3.5, mark: 'none' },

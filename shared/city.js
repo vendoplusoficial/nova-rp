@@ -17,7 +17,7 @@ import { Heightmap, WorldTerrain, playable, SEA_LEVEL, fenceLines, coastLines, l
 import { DISTRICTS, districtAt } from './districts.js';
 import { RoadNet, buildMainRoads, buildLocalRoads, rectContains, segDist, segPointDist } from './roads.js';
 import { buildBlocks, frontages, runAt, rayToPoly, rectInPoly, insetPoly, removeLoops, signedArea } from './blocks.js';
-import { SITE_DEFS, SAFE_ZONES, STREET_RULES, ROUNDABOUTS, LAKE, DAM, PIERS, P as MP } from './mapdata.js';
+import { SITE_DEFS, SAFE_ZONES, STREET_RULES, ROUNDABOUTS, LAKE, DAM, PIERS, WORLD as MAP_BOUNDS, P as MP } from './mapdata.js';
 import { SITE_BUILDERS as BASE_BUILDERS } from './landmarks.js';
 import { EXTRA_BUILDERS } from './landmarksExtra.js';
 import * as B from './buildings.js';
@@ -25,6 +25,7 @@ import { regionVegetation } from './vegetation.js';
 import { buildHighways, highwayColliders, bridgeLamps, roadDistance, TUNNEL_H } from './highways.js';
 import { generateUrban } from './urban.js';
 import { URBAN_PLANS } from './citiesPlan.js';
+import { settleRoadGrid } from './roadGrading.js';
 
 export { DISTRICTS, districtAt };
 export const SITE_BUILDERS = { ...BASE_BUILDERS, ...EXTRA_BUILDERS };
@@ -105,6 +106,8 @@ export function generateCity(seed = CITY_SEED, opts = {}) {
     if (fixedRects.some((r) => rectContains(r, cp.x, cp.z, 18))) continue;
     city.caps.push(buildCap(road, cp, hm));
   }
+
+  settleRoadGrid(hm);
 
   // ---------- 3. manzanas ----------
   const { blocks, graph } = buildBlocks(net);
@@ -401,6 +404,19 @@ export function generateCity(seed = CITY_SEED, opts = {}) {
         city.colliders.push({ cx: (a[0] + b[0]) / 2, cz: (a[1] + b[1]) / 2, hx: L / 2 + 0.4, hz: 0.8, rot: Math.atan2(-(b[1] - a[1]), b[0] - a[0]), minY: -20, maxY: 160, fence: 1 });
       }
     }
+  }
+  // La nueva costa cambia los encuentros entre palapas y mobiliario. Su punto de recogida
+  // debe quedar fuera de postes y paredes, sin mover edificios ni ampliar la zona de interacción.
+  for (const p of city.pickups) if (p.palapa) {
+    const ox = p.x, oz = p.z;
+    let found = false;
+    for (let r = 0; r <= 14 && !found; r += 2) for (let k = 0; k < (r ? 16 : 1); k++) {
+      const a = k * Math.PI / 8, x = ox + Math.cos(a) * r, z = oz + Math.sin(a) * r, y = city.height(x,z);
+      if (!playable(x,z,1) || y < 0.5) continue;
+      if (city.colliders.some(c=>c.minY < y+1.8 && c.maxY > y && rectContains(c,x,z,0.5))) continue;
+      p.x = x; p.z = z; found = true; break;
+    }
+    delete p.palapa;
   }
   city.coast = coastLines();
   delete city._ph; delete city._lh;
@@ -920,7 +936,7 @@ function spotOK(city, x, z, front = 3, minGap = 2.6) {
 }
 
 // ---------------- semáforos y señales de ALTO en los cruces del grafo vial ----------------
-const MAJOR = new Set(['avenida', 'boulevard']);
+const MAJOR = new Set(['autopista', 'avenida', 'boulevard']);
 export function intersectionSigns(city, graph) {
   const { nodes } = graph;
   const segsOf = new Map();
@@ -929,6 +945,7 @@ export function intersectionSigns(city, graph) {
     if (!n.out || n.out.length < 3) continue;
     const roads = n.out.map((o) => o.e.road);
     if (roads.some((r) => r.cls === 'glorieta')) continue;
+    if (roads.some((r) => r.cls === 'autopista')) continue;
     const anyMajor = roads.some((r) => MAJOR.has(r.cls));
     const count = (r) => roads.filter((q) => q === r).length;
     const minorIds = roads.filter((r) => count(r) >= 2).map((r) => r.id);
@@ -1010,7 +1027,7 @@ export function streetFurniture(city, net, seed) {
   const segsOf = new Map();
   for (const sg of net.segs) { let a = segsOf.get(sg.road); if (!a) segsOf.set(sg.road, (a = [])); a.push(sg); }
   for (const road of net.roads) {
-    if (road.cls === 'glorieta') continue;
+    if (road.cls === 'glorieta' || road.cls === 'autopista') continue;
     const mid = road.pts[Math.floor(road.pts.length / 2)];
     const dist = road.district || districtAt(mid[0], mid[1]);
     const main = MAJOR.has(road.cls);
@@ -1130,7 +1147,7 @@ function beachAndSea(city, seed) {
             if (playable(px, pz, 2) && isSandy(px, pz) && spotOK(city, px, pz, 1, 6) && city.net.clearance(px, pz).c > 6 && !city.blocks.some((b) => pointInPoly(b.poly, px, pz))) {
               const name = palapas[nPal++ % palapas.length];
               city.props.push({ type: 'palapa', x: px, z: pz, r: Math.atan2(-nx, -nz), col: 1, name });
-              city.pickups.push({ id: city.pickups.length, x: px + nx * 6, z: pz + nz * 6, name });
+              city.pickups.push({ id: city.pickups.length, x: px + nx * 10, z: pz + nz * 10, name, palapa: true });
             }
           }
           if (k % 2 === 0) { const [qx, qz] = at(36 + (h % 12)); if (playable(qx, qz, 0) && spotOK(city, qx, qz, 1, 5)) city.props.push({ type: 'palm', x: qx, z: qz, r: h % 6, sc: 1.05 + (h % 40) / 100, col: 1 }); }
@@ -1147,21 +1164,23 @@ function beachAndSea(city, seed) {
 }
 
 // ---------------- vegetación natural (bosques en la sierra, jardines en los barrios) ----------------
-const DENSITY = { montana: 0.3, presa: 0.3, exclusiva: 0.12, campo: 0.24, isla: 0.2, media: 0.02, residencial: 0.03, popular: 0.015, centro: 0, comercial: 0, sur: 0.01, industrial: 0.01, costa: 0.02, playa: 0.02, aeropuerto: 0, puerto: 0, prision: 0.03 };
+const DENSITY = { montana: 0.3, presa: 0.3, exclusiva: 0.12, campo: 0.065, isla: 0.2, media: 0.02, residencial: 0.03, popular: 0.015, centro: 0, comercial: 0, sur: 0.01, industrial: 0.01, costa: 0.02, playa: 0.02, aeropuerto: 0, puerto: 0, prision: 0.03 };
 function vegetation(city, net, seed) {
   const hm = city.hm;
   const STEP = 13;
   const ends = [];
   for (const r of net.roads) if (!r.closed) ends.push(r.pts[0], r.pts[r.pts.length - 1]);
   const nearEnd = (x, z) => ends.some((e) => Math.abs(e[0] - x) < 14 && Math.abs(e[1] - z) < 14);
-  for (let gz = -640; gz < 620; gz += STEP) {
-    for (let gx = -780; gx < 800; gx += STEP) {
+  for (let gz = MAP_BOUNDS.z0; gz < MAP_BOUNDS.z1; gz += STEP) {
+    for (let gx = MAP_BOUNDS.x0; gx < MAP_BOUNDS.x1; gx += STEP) {
       const h = hashInts(seed, gx, gz, 9001);
       const x = gx + ((h % 1000) / 1000 - 0.5) * STEP * 0.9;
       const z = gz + (((h >>> 10) % 1000) / 1000 - 0.5) * STEP * 0.9;
       if (!inWorld(x, z, -40)) continue;
       const y = hm.height(x, z);
-      if (y < 1.6 || lakeDist(x, z) > -3) continue;
+      if (y < 1.6 || lakeDist(x, z) > -3 || landDist(x, z) < 4) continue;
+      const slope = Math.hypot(hm.height(x + 4, z) - hm.height(x - 4, z), hm.height(x, z + 4) - hm.height(x, z - 4)) / 8;
+      if (slope > 0.9) continue;
       const inside = playable(x, z, 2);
       let density, kinds;
       if (!inside) {
